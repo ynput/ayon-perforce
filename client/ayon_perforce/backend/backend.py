@@ -92,8 +92,8 @@ class PerforceBackend:
         return api.move(path, new_path, change_description=change_description)
 
     @staticmethod
-    def get_changes() -> Optional[list[dict]]:
-        return api.get_changes()
+    def get_changes(stream: str = None) -> Optional[list[dict]]:
+        return api.get_changes(stream=stream)
 
     @staticmethod
     def get_existing_change_list(comment: str) -> Optional[dict]:

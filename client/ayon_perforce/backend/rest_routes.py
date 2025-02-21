@@ -147,8 +147,8 @@ class GetChanges(PerforceRestApiEndpoint):
     async def post(self, request) -> Response:
         log.debug("GetChanges called")
         content = await request.json()
-
-        result = PerforceBackend.get_changes()
+        stream = content.get("stream")
+        result = PerforceBackend.get_changes(stream=stream)
         return Response(
             status=200,
             body=self.encode(result),
