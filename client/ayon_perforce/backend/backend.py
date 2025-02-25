@@ -3,7 +3,7 @@ import pathlib
 
 from . import api
 
-from typing import Union, Optional, Tuple
+from typing import Dict, List, Union, Optional, Tuple
 
 
 class PerforceBackend:
@@ -96,6 +96,10 @@ class PerforceBackend:
         return api.get_changes(stream=stream)
 
     @staticmethod
+    def get_uncommitted_changes() -> Optional[List[Dict]]:
+        return api.get_uncommitted_changes()
+
+    @staticmethod
     def get_existing_change_list(comment: str) -> Optional[dict]:
         return api.get_existing_change_list(comment)
 
@@ -134,6 +138,10 @@ class PerforceBackend:
     @staticmethod
     def submit_change_list(comment: str) -> int:
         return api.submit_change_list(comment)
+
+    @staticmethod
+    def submit_default_changelist(comment) -> Optional[int]:
+        return api.submit_default_changelist(comment)
 
     @staticmethod
     def update_change_list_description(comment: str, new_comment: str) -> bool:

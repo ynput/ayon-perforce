@@ -69,11 +69,25 @@ class PerforceModuleRestAPI:
             is_checkouted.dispatch
         )
 
+        revert = rest_routes.Revert()
+        self.server_manager.add_route(
+            "POST",
+            self.prefix + "/revert",
+            revert.dispatch
+        )
+
         get_changes = rest_routes.GetChanges()
         self.server_manager.add_route(
             "POST",
             self.prefix + "/get_changes",
             get_changes.dispatch
+        )
+
+        get_uncommitted_changes = rest_routes.GetUncommittedChanges()
+        self.server_manager.add_route(
+            "POST",
+            self.prefix + "/get_uncommitted_changes",
+            get_uncommitted_changes.dispatch
         )
 
         get_last_change_list = rest_routes.GetLastChangelist()
@@ -88,6 +102,13 @@ class PerforceModuleRestAPI:
             "POST",
             self.prefix + "/submit_change_list",
             submit_change_list.dispatch
+        )
+
+        submit_default_changelist = rest_routes.SubmitDefaultChangelist()
+        self.server_manager.add_route(
+            "POST",
+            self.prefix + "/submit_default_changelist",
+            submit_default_changelist.dispatch
         )
 
         exists_on_server = rest_routes.ExistsOnServer()

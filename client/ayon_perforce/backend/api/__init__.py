@@ -1199,10 +1199,19 @@ class P4ConnectionManager:
         # returns list as _process_result_ breaks dictionary
         return change_list
 
+    def _connect_get_uncommitted_changes(self):
+        client_spec = self._connect_run_command("client", "-o")[0]
+        cmd = ["changes", "-s", "pending", "-c", client_spec["Client"]]
+        changes = self._connect_run_command(*cmd)
+
+        if default_changes := self._connect_run_command("opened", "-c", "default"):
+            changes.append(default_changes)
+        return changes
+
     def _connect_get_last_change_list(self):
         client_info = self.p4.run("client", "-o")[0]
-        client = client_info["Client"]
-        cmd = ["changes", "-s", "submitted", "-m", 1, "-c", client]
+        client_stream = client_info["Stream"]
+        cmd = ["changes", "-s", "submitted", "-m", 1, f"{client_stream}/..."]
         change_list = self._connect_run_command(*cmd)
         if not change_list:
             return
@@ -1898,6 +1907,16 @@ class P4ConnectionManager:
             self._connect_get_existing_change_list(change_description)
         )
         result = self.p4.run_submit(change_list_spec)
+        if not result:
+            return None
+
+        return int(result[0]["change"])
+
+    def _connect_submit_default_changelist(self, change_description: str) -> int | None:
+        default_cl_cmd = ["change", "-o"]
+        default_cl = self.p4.run(*default_cl_cmd)[0]
+        default_cl["Description"] = change_description
+        result = self.p4.run_submit(default_cl)
         if not result:
             return None
 
