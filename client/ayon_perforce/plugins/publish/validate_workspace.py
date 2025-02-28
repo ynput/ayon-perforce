@@ -18,32 +18,36 @@ from ayon_core.pipeline import PublishValidationError, PublishXmlValidationError
 from ayon_perforce.rest.perforce.rest_stub import PerforceRestStub
 
 
-class ValidateWorkspace(pyblish.api.InstancePlugin):
+class ValidateWorkspace(pyblish.api.ContextPlugin):
     """Validates if workspace_dir was collected and is valid.
 
     Used for committing to P4 directly from AYON.
     """
-    order = ValidateContentsOrder
-    label = "Validate P4 workspace dir"
+    order = ValidateContentsOrder # this runs after the "normal" validators
+    label = "Validate P4 workspace"
     targets = ["local"]
     hosts = ["unreal"]
-    actions = [RepairAction]
+    actions = [RepairAction]  #todo: how to get context in repar action if its not an instnace plugin
 
-    def process(self, instance):
+    def process(self, context):
         """Validate workspace_dir is collected, exists and has no uncomitted changes.
 
         TODO: implement multiple roots
         """
+        p4_data = context.data.get("perforce")
+        if not p4_data:
+            raise PublishValidationError("No Perforce data found in context.")
+
         # validate workspace_dir
-        workspace_dir = instance.data["perforce"]["roots"]["work"]
+        workspace_dir = p4_data["workspace_dir"]
         if not workspace_dir or not os.path.exists(workspace_dir):
-            project_name = instance.context.data.get("projectName")
+            project_name = context.data.get("projectName")
             msg = ("Please provide your local folder for workspace in "
                    "`ayon+settings://perforce/local_setting/workspace_dir?project={}`".format(project_name))  # noqa
             raise PublishXmlValidationError(self, msg)
         
         # validate stream
-        stream = instance.context.data["perforce"]["stream"]
+        stream = p4_data["stream"]
         if not stream:
             msg = (
                 "Deadline implementation require depot with `streams`. "
@@ -57,18 +61,19 @@ class ValidateWorkspace(pyblish.api.InstancePlugin):
         if uncommitted_changes:
             for change in uncommitted_changes:
                 self.log.error(f"Uncommitted change: {change}")
-            instance.data["uncommitted_changes"] = uncommitted_changes
+            context.data["perforce"]["uncommitted_changes"] = uncommitted_changes
             raise PublishValidationError(
                 "Workspace has uncommitted changes! Please commit or revert before publish."
             )
-        # # TODO: check for stream updates
+        # TODO: check for stream updates
 
     @classmethod
-    def repair(cls, instance):
+    def repair(cls, context):
+        p4_data = context.data["perforce"]
         UncommittedChangesRepairer(
-            uncommitted_changes=instance.data["uncommitted_changes"],
-            workspace_dir=instance.context.data["perforce"]["workspace_dir"],
-            workspace_name=instance.context.data["perforce"]["workspace_name"]
+            uncommitted_changes=p4_data["uncommitted_changes"],
+            workspace_dir=p4_data["workspace_dir"],
+            workspace_name=p4_data["workspace_name"]
         ).exec_()
 
 
