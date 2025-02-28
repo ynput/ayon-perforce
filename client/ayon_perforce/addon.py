@@ -111,11 +111,6 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
     def get_plugin_paths(self):
         return {}
 
-    def get_create_plugin_paths(self, host_name):
-        if host_name != "unreal":
-            return []
-        return ["{}/plugins/create/unreal".format(PERFORCE_ADDON_DIR)]
-
     def get_publish_plugin_paths(self, host_name):
         return [os.path.join(PERFORCE_ADDON_DIR, "plugins", "publish")]
 
