@@ -9,8 +9,6 @@ from ayon_applications import (
 
 from ayon_core.pipeline.template_data import get_template_data
 
-from ayon_perforce import P4_Workspace
-
 
 class PerforcePreLaunchFarmHook(PreLaunchHook):
     """Handle workspace reset to commit on remote render jobs."""
@@ -38,17 +36,22 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
 
         p4_data = {}
         for key in env.keys():
-            if key == "PERFORCE_WORKSPACE":
+            if key == "AYON_P4_WORKSPACE":
                 p4_data["workspace_name"] = env[key]
-            if key == "PERFORCE_STREAM":
+            if key == "AYON_P4_STREAM":
                 p4_data["stream"] = env[key]
-            if key == "PERFORCE_CHANGELIST":
+            if key == "AYON_P4_CHANGELIST":
                 p4_data["commit"] = env[key]
 
-        return
+        # return
         if not p4_data:
-            raise ValueError("No diversion data found in environment")
+            raise ValueError("No Perforce data found in environment")
+        print(f"{p4_data = }")
+    
+        # find render node's workspace
+        # checkout stream --> revert any changes
+        # revert to changelist --> revert any changes
 
-        ws = P4_Workspace(name=p4_data["workspace_name"])
-        # ws.checkout_stream(p4_data["stream"])
-        ws.revert_to_changelist(p4_data["changelist"])
+        # ws = P4_Workspace(name=p4_data["workspace_name"])
+        # # ws.checkout_stream(p4_data["stream"])
+        # ws.revert_to_changelist(p4_data["changelist"])
