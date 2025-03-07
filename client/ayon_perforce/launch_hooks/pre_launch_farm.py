@@ -11,6 +11,7 @@ from ayon_applications import (
 
 from ayon_core.pipeline.template_data import get_template_data
 
+from ayon_perforce.rest.communication_server import WebServer
 from ayon_perforce.rest.perforce.rest_stub import PerforceRestStub  # throws `Unknown Perforce Serve` error
 
 
@@ -68,6 +69,10 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
         if publish_job := env.get("AYON_PUBLISH_JOB"):
             if int(publish_job) > 0:
                 return
+
+        if not env.get("PERFORCE_WEBSERVER_URL"):
+            p4_webserver = WebServer()
+            p4_webserver.start()
 
         anatomy = self.data["anatomy"]
         ue_tmpl = anatomy.get_template_item("work", "unreal")
