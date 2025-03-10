@@ -13,7 +13,7 @@ from ayon_core.lib.ayon_info import get_workstation_info
 from ayon_core.pipeline.template_data import get_template_data
 
 from ayon_perforce.rest.communication_server import WebServer
-from ayon_perforce.rest.perforce.rest_stub import PerforceRestStub  # throws `Unknown Perforce Serve` error
+from ayon_perforce.rest.rest_stub import PerforceRestStub  # throws `Unknown Perforce Serve` error
 
 
 def call_command(

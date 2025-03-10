@@ -2,7 +2,7 @@ from os import environ
 
 import pyblish.api
 
-from ayon_perforce.rest.perforce.rest_stub import PerforceRestStub
+from ayon_perforce.rest.rest_stub import PerforceRestStub
 
 class ExtractChangelistInfo(pyblish.api.InstancePlugin):
     """Extract changelist info into deadline job."""
