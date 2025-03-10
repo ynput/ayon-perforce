@@ -58,15 +58,6 @@ class CollectPerforceLogin(pyblish.api.ContextPlugin):
 
         PerforceRestStub.login(**asdict(conn_info))
 
-        stream = PerforceRestStub.get_stream(
-            workspace_name=conn_info["workspace_name"])
-        context.data["perforce"]["stream"] = stream
-        self.log.debug("stream: %s", stream)
-
-        workspace_dir = PerforceRestStub.get_workspace_dir(
-            workspace_name=conn_info.workspace_name)
-        context.data["perforce"]["workspace_dir"] = workspace_dir
-
     def _get_conn_info(
         self,
         project_name: str,
