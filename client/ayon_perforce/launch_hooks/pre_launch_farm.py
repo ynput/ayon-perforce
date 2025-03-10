@@ -9,6 +9,7 @@ from ayon_applications import (
     LaunchTypes,
 )
 
+from ayon_core.lib.ayon_info import get_workstation_info
 from ayon_core.pipeline.template_data import get_template_data
 
 from ayon_perforce.rest.communication_server import WebServer
@@ -84,7 +85,9 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
             settings=self.data["project_settings"],
         )
         template_data["ext"] = "uproject"
+        template_data["workstation_info"] = get_workstation_info()
         uproject_name = Path(ue_tmpl.format(template_data)["file"]).stem
+        print(f"{template_data = }")
 
         p4_data = {}
         for key in env.keys():
@@ -101,10 +104,13 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
 
         # find render node's workspace
         # TODO: build and resolve template
-        ws_template = "{project_code}_{host_name}_{user_name}"
-        # ws_name = "uemc_BEPIC-DEVNODE01_Tony.Dorfmeister" # example for resolved ws template
-        ws_name = "bepic_BEPIC-DEVNODE01_mainline_8543"
-    
+        ws_template = "{user_name}_{host_name}_{project_code}"
+        ws_name = ws_template.format(
+            user_name=template_data["workstation_info"]["username"],
+            host_name=template_data["workstation_info"]["hostname"],
+            project_code=template_data["project"]["code"],
+        )
+
         # get current workspace? -> nah just checkout the correct one already
         try:
             call_command(["p4", "set", f"P4CLIENT={ws_name}"])  #! can fail -> wrap try/catch
