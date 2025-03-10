@@ -1,6 +1,9 @@
-from copy import deepcopy
+"""Validate if workspace_dir was collected and is valid."""
+from __future__ import annotations
+
 import os
-from pathlib import Path
+from copy import deepcopy
+from typing import ClassVar
 
 import pyblish.api
 from qtpy import QtCore, QtWidgets
@@ -11,6 +14,7 @@ from ayon_core.pipeline.publish import (
     PublishValidationError,
 )
 from ayon_core.tools.utils import ErrorMessageBox
+from ayon_core.pipeline import PublishXmlValidationError
 from ayon_core.pipeline.publish import ValidateContentsOrder
 from ayon_core.pipeline import PublishValidationError, PublishXmlValidationError
 
@@ -25,15 +29,18 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
     """
     order = ValidateContentsOrder # this runs after the "normal" validators
     label = "Validate P4 workspace"
-    targets = ["local"]
+    targets: ClassVar[list[str]] = ["local"]
     hosts = ["unreal"]
     actions = [RepairAction]  #todo: how to get context in repar action if its not an instnace plugin
 
     def process(self, context):
-        """Validate workspace_dir is collected, exists and has no uncomitted changes.
+        """Process the plugin.
 
-        TODO: implement multiple roots
+        Raises:
+            PublishXmlValidationError: If workspace_dir is not collected.
+
         """
+        # TODO(antirotor): implement multiple roots
         p4_data = context.data.get("perforce")
         if not p4_data:
             raise PublishValidationError("No Perforce data found in context.")
@@ -41,9 +48,11 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
         # validate workspace_dir
         workspace_dir = p4_data["workspace_dir"]
         if not workspace_dir or not os.path.exists(workspace_dir):
-            project_name = context.data.get("projectName")
-            msg = ("Please provide your local folder for workspace in "
-                   "`ayon+settings://perforce/local_setting/workspace_dir?project={}`".format(project_name))  # noqa
+            project_name = instance.context.data.get("projectName")
+            msg = (
+                "Please provide your local folder for workspace in "
+                "`ayon+settings://perforce/local_setting/"
+                f"workspace_dir?project={project_name}`")
             raise PublishXmlValidationError(self, msg)
         
         # validate stream
