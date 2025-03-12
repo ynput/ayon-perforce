@@ -12,7 +12,7 @@ from ayon_core.pipeline.publish import (
     PublishValidationError,
 )
 
-from ayon_perforce.rest.perforce.rest_stub import PerforceRestStub
+from ayon_perforce.rest.rest_stub import PerforceRestStub
 
 
 class ValidateUncomittedChanges(pyblish.api.InstancePlugin):
