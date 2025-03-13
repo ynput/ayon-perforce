@@ -19,7 +19,7 @@ from ayon_core.pipeline.publish import ValidateContentsOrder
 from ayon_core.pipeline import PublishValidationError, PublishXmlValidationError
 
 
-from ayon_perforce.rest.rest_stub import PerforceRestStub
+from ayon_perforce.backend.rest_stub import PerforceRestStub
 
 
 class ValidateWorkspace(pyblish.api.ContextPlugin):
