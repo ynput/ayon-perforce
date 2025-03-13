@@ -1,7 +1,7 @@
 """Perforce backend."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Tuple, Union, Dict, List
+from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 from . import api
 
@@ -194,7 +194,7 @@ class PerforceBackend:  # noqa: PLR0904
         return api.get_changes(stream=stream)
 
     @staticmethod
-    def get_uncommitted_changes() -> Optional[List[Dict]]:
+    def get_uncommitted_changes() -> Optional[list[dict]]:
         return api.get_uncommitted_changes()
 
     @staticmethod
