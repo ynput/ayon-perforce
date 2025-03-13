@@ -186,6 +186,9 @@ class PerforceBackend:  # noqa: PLR0904
     def get_changes(stream: str = None) -> Optional[list[dict]]:
         """Get the list of changes.
 
+        Parameters:
+            stream (str): Stream name
+
         Returns:
             Optional[list[dict]]: List of changes or None if there are no
                 changes.
@@ -194,7 +197,13 @@ class PerforceBackend:  # noqa: PLR0904
         return api.get_changes(stream=stream)
 
     @staticmethod
-    def get_uncommitted_changes() -> Optional[List[Dict]]:
+    def get_uncommitted_changes() -> Optional[list[dict]]:
+        """Get the uncommitted changes.
+
+        Returns:
+            Optional[list[dict]]: List of uncommitted changes or None if
+                there are no uncommitted changes.
+        """
         return api.get_uncommitted_changes()
 
     @staticmethod
@@ -268,6 +277,14 @@ class PerforceBackend:  # noqa: PLR0904
 
     @staticmethod
     def submit_default_changelist(comment) -> Optional[int]:
+        """Submit the default change list with a comment.
+
+        Args:
+            comment (str): Comment for the change list.
+
+        Returns:
+            Optional[int]: Change list number or None if the change list was
+        """
         return api.submit_default_changelist(comment)
 
     @staticmethod

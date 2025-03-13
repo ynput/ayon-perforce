@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Optional
 import pyblish.api
 from ayon_common.utils import get_local_site_id
 from ayon_perforce import is_perforce_enabled
+from ayon_perforce.backend.rest_stub import PerforceRestStub
 from ayon_perforce.lib import WorkspaceProfileContext
-from ayon_perforce.rest.rest_stub import PerforceRestStub
 
 if TYPE_CHECKING:
     from logging import Logger
@@ -54,9 +54,18 @@ class CollectPerforceLogin(pyblish.api.ContextPlugin):
         if not conn_info:
             return
 
-        context.data["perforce"] = conn_info
+        context.data["perforce"] = asdict(conn_info)
 
         PerforceRestStub.login(**asdict(conn_info))
+
+        stream = PerforceRestStub.get_stream(
+            workspace_name=conn_info.workspace_name)
+        context.data["perforce"]["stream"] = stream
+        self.log.debug("stream: %s", stream)
+
+        workspace_dir = PerforceRestStub.get_workspace_dir(
+            workspace_name=conn_info.workspace_name)
+        context.data["perforce"]["workspace_dir"] = workspace_dir
 
     def _get_conn_info(
         self,
