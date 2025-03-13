@@ -10,7 +10,6 @@ from ayon_core.pipeline import registered_host
 
 from ayon_perforce.backend.rest_stub import PerforceRestStub
 from ayon_perforce.lib import WorkspaceProfileContext
-from ayon_perforce.backend.rest_stub import PerforceRestStub
 
 if TYPE_CHECKING:
     from ayon_core.host import HostBase
