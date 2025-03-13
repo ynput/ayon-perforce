@@ -272,7 +272,7 @@ class PerforceBackend:  # noqa: PLR0904
 
     @staticmethod
     def update_change_list_description(
-        comment: str, new_comment: str) -> bool:
+            comment: str, new_comment: str) -> bool:
         """Update the change list description.
 
         Returns:
