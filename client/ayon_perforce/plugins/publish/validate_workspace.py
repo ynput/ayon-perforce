@@ -41,14 +41,19 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
 
         """
         # TODO(antirotor): implement multiple roots
-        conn_info = context.data.get("perforce")
-        if not conn_info:
+        p4_data = context.data.get("perforce")
+        if not p4_data:
             raise PublishValidationError(
                 "No Perforce connection info found in context.")
 
+        ws_name: str = p4_data.get("workspace_name")
+        if not ws_name:
+            raise PublishValidationError(
+                "No workspace name found in Perforce connection info.")
+
         # validate workspace_dir
         workspace_dir = PerforceRestStub.get_workspace_dir(
-            workspace_name=conn_info.workspace_name)
+            workspace_name=ws_name)
         if not workspace_dir or not os.path.exists(workspace_dir):
             project_name = instance.context.data.get("projectName")
             msg = (
@@ -56,11 +61,11 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
                 "`ayon+settings://perforce/local_setting/"
                 f"workspace_dir?project={project_name}`")
             raise PublishXmlValidationError(self, msg)
-        context.data["p4_workspace_dir"] = workspace_dir
+        context.data["workspace_dir"] = workspace_dir
 
         # validate stream
         stream = PerforceRestStub.get_stream(
-            workspace_name=conn_info.workspace_name)
+            workspace_name=ws_name)
         if not stream:
             msg = (
                 "Deadline implementation require depot with `streams`. "
@@ -68,14 +73,14 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
                 "stream connected."
             )
             raise PublishValidationError(self, msg)
-        context.data["p4_stream"] = stream
+        p4_data["stream"] = stream
         
         # validate uncomitted changes
         uncommitted_changes = PerforceRestStub.get_uncommitted_changes()
         if uncommitted_changes:
             for change in uncommitted_changes:
                 self.log.error(f"Uncommitted change: {change}")
-            context.data["uncommitted_changes"] = uncommitted_changes
+            p4_data["uncommitted_changes"] = uncommitted_changes
             raise PublishValidationError(
                 "Workspace has uncommitted changes! Please commit or revert before publish."
             )
@@ -83,11 +88,11 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
 
     @classmethod
     def repair(cls, context):
-        conn_info = context.data["perforce"]
+        p4_data = context.data["perforce"]
         UncommittedChangesRepairer(
-            uncommitted_changes=context.data["uncommitted_changes"],
-            workspace_dir=context.data["p4_workspace_dir"],
-            workspace_name=conn_info.workspace_name
+            uncommitted_changes=p4_data["uncommitted_changes"],
+            workspace_dir=p4_data["workspace_dir"],
+            workspace_name=p4_data["workspace_name"]
         ).exec_()
 
 
