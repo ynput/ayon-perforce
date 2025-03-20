@@ -45,7 +45,6 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
     label = "Perforce Version Control"
     name = "perforce"
     version = __version__
-    webserver = None
     login_tray = None
 
     # Public Methods:
