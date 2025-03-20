@@ -115,25 +115,6 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
 
         return f"{self.settings['host_name']}:{self.settings['port']}"
 
-    @staticmethod
-    def sync_to_version(
-            conn_info: ConnectionInfo, change_id: int) -> None:
-        """Sync to a specific version in Perforce.
-
-        Args:
-            conn_info: Connection information for Perforce.
-            change_id: Change ID to sync to.
-
-        """
-        from ayon_perforce.backend.rest_stub import PerforceRestStub
-
-        PerforceRestStub.login(**asdict(conn_info))
-
-        workspace_dir = PerforceRestStub.get_workspace_dir(
-            conn_info.workspace_name)
-        PerforceRestStub.sync_to_version(
-            f"{workspace_dir}/...", change_id)
-
     def tray_init(self) -> None:
         """Called when the tray is initializing."""
         self.login_tray = PerforceLoginTray(self)
@@ -152,16 +133,9 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
 
     def tray_exit(self) -> None:
         """Called when the tray is exiting."""
-        if self.enabled and \
-                self.webserver and self.webserver.server_is_running:
-            self.webserver.stop()
 
     def tray_start(self) -> None:
         """Called when the tray is starting."""
-        if self.enabled:
-            from ayon_perforce.backend.communication_server import WebServer
-            self.webserver = WebServer()
-            self.webserver.start()
 
     def tray_menu(self, tray_menu: dict[str, Any]) -> None:
         """Add Perforce menu to the tray.
