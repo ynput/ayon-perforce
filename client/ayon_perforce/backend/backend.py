@@ -1,7 +1,7 @@
 """Perforce backend."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Tuple, Union, Dict, List
 
 from . import api
 
@@ -183,15 +183,28 @@ class PerforceBackend:  # noqa: PLR0904
         return api.move(path, new_path, change_description=change_description)
 
     @staticmethod
-    def get_changes() -> Optional[list[dict]]:
+    def get_changes(stream: str = None) -> Optional[list[dict]]:
         """Get the list of changes.
+
+        Parameters:
+            stream (str): Stream name
 
         Returns:
             Optional[list[dict]]: List of changes or None if there are no
                 changes.
 
         """
-        return api.get_changes()
+        return api.get_changes(stream=stream)
+
+    @staticmethod
+    def get_uncommitted_changes() -> Optional[list[dict]]:
+        """Get the uncommitted changes.
+
+        Returns:
+            Optional[list[dict]]: List of uncommitted changes or None if
+                there are no uncommitted changes.
+        """
+        return api.get_uncommitted_changes()
 
     @staticmethod
     def get_existing_change_list(comment: str) -> Optional[dict]:
@@ -261,6 +274,18 @@ class PerforceBackend:  # noqa: PLR0904
 
         """
         return api.submit_change_list(comment)
+
+    @staticmethod
+    def submit_default_changelist(comment) -> Optional[int]:
+        """Submit the default change list with a comment.
+
+        Args:
+            comment (str): Comment for the change list.
+
+        Returns:
+            Optional[int]: Change list number or None if the change list was
+        """
+        return api.submit_default_changelist(comment)
 
     @staticmethod
     def update_change_list_description(

@@ -44,6 +44,8 @@ class ChangesModel(QtGui.QStandardItemModel):
         """Refresh the model."""
         self.removeRows(0, self.rowCount())  # Clear existing data
         changes = self._controller.get_changes()
+        if not changes:
+            return
 
         for change in changes:
             date_time = datetime.fromtimestamp(int(change["time"]), tz=TZ_INFO)
