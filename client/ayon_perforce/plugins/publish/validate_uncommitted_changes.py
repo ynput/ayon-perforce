@@ -115,7 +115,7 @@ class UncommittedChangesRepairer(ErrorMessageBox):
     def on_revert_selected(self):
         selection = self.lv_uncommitted_changes.selectedIndexes()
         for index in selection:
-            # we need to buil;d an absolute local path
+            # we need to build an absolute local path
             # it seems p4 revert doesn't like depot or client syntax?!
             client_file = deepcopy(index.data(QtCore.Qt.UserRole)["clientFile"])
             client_file = client_file.replace("//", "")
