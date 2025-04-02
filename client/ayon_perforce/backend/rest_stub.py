@@ -186,6 +186,16 @@ class PerforceRestStub:
         return PerforceRestStub._wrap_call("get_changes")
 
     @staticmethod
+    def get_uncommitted_changes() -> dict:
+        """Get the uncommitted changes.
+
+        Returns:
+            dict: Response from the server.
+        """
+        response = PerforceRestStub._wrap_call("get_uncommitted_changes")
+        return response
+
+    @staticmethod
     def submit_change_list(comment: str) -> dict:
         """Submit the change list.
 
@@ -198,6 +208,28 @@ class PerforceRestStub:
         """
         return PerforceRestStub._wrap_call(
             "submit_change_list", comment=comment)
+
+    @staticmethod
+    def submit_default_changelist(comment):
+        """Submit the default change list with a comment.
+
+        Args:
+            comment (str): Comment for the change list.
+        """
+        response = PerforceRestStub._wrap_call(
+            "submit_default_changelist", comment=comment)
+        return response
+
+    @staticmethod
+    def revert(path):
+        """Revert specified file for path.
+
+        Args:
+            path (str): Path to the file.
+        """
+        response = PerforceRestStub._wrap_call(
+            "revert", path=path)
+        return response
 
     @staticmethod
     def exists_on_server(path: Union[str, pathlib.Path]) -> dict:
