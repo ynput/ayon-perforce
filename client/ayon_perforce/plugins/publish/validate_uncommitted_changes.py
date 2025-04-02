@@ -33,7 +33,6 @@ class ValidateUncomittedChanges(pyblish.api.InstancePlugin):
             raise PublishValidationError(
                 "Workspace has uncommitted changes! Please commit or revert before publish."
             )
-        # # TODO: check for stream updates
 
     @classmethod
     def repair(cls, instance):
