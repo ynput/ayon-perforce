@@ -20,6 +20,7 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
     """
     identifier = "io.ayon.creators.unreal.changelist_metadata"
     product_type = "changelist_metadata"
+    product_base_type = "changelist_metadata"
     label = "Publish Changelist Metadata"
     host_name = "unreal"
 
