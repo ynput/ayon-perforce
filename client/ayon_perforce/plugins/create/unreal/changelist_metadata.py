@@ -62,15 +62,6 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
                 "productName": product_name
             }
 
-            data.update(self.get_dynamic_data(
-                project_name,
-                folder_entity,
-                task_entity,
-                self.default_variant,
-                host_name,
-                None
-            ))
-
             # TODO enable when Settings available
             # if not self.active_on_create:
             #     data["active"] = False
