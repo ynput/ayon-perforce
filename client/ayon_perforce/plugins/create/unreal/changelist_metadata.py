@@ -88,6 +88,7 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
                 project_name, folder_entity, task_entity, self.default_variant,
                 host_name
             )
+            existing_instance["productName"] = product_name
             existing_instance["folderPath"] = folder_path
             existing_instance["task"] = task_name
 
