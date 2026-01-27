@@ -37,7 +37,7 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
         """
         existing_instance = None
         for instance in self.create_context.instances:
-            if instance.product_type == self.product_type:
+            if instance.product_base_type == self.product_base_type:
                 existing_instance = instance
                 break
 
@@ -49,10 +49,12 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
         task_name = task_entity["name"]
         host_name = context.host_name
         if existing_instance is None:
-
             product_name = self.get_product_name(
-                project_name, folder_entity, task_entity, self.default_variant,
-                host_name
+                project_name,
+                folder_entity=folder_entity,
+                task_entity=task_entity,
+                variant=self.default_variant,
+                host_name=host_name,
             )
 
             data = {
@@ -67,7 +69,10 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
             #     data["active"] = False
 
             new_instance = CreatedInstance(
-                self.product_type, product_name, data, self
+                product_type=self.product_base_type,
+                product_name=product_name,
+                data=data,
+                creator=self,
             )
             self._add_instance_to_context(new_instance)
             instance_name = f"{product_name}{self.suffix}"
@@ -81,12 +86,15 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
             return pub_instance
 
         if (
-                existing_instance["folderPath"] != folder_path
-                or existing_instance.get("task") != task_name
+            existing_instance["folderPath"] != folder_path
+            or existing_instance.get("task") != task_name
         ):
             product_name = self.get_product_name(
-                project_name, folder_entity, task_entity, self.default_variant,
-                host_name
+                project_name,
+                folder_entity=folder_entity,
+                task_entity=task_entity,
+                variant=self.default_variant,
+                host_name=host_name,
             )
             existing_instance["productName"] = product_name
             existing_instance["folderPath"] = folder_path
