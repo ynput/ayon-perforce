@@ -36,10 +36,22 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
 
         """
         existing_instance = None
+        alternatives = []
         for instance in self.create_context.instances:
-            if instance.product_base_type == self.product_base_type:
+            if instance.creator_identifier == self.identifier:
                 existing_instance = instance
                 break
+
+            # Property 'product_base_type' was added in ayon-core 1.8.0
+            product_base_type = instance.get("productBaseType")
+            if not product_base_type:
+                product_base_type = instance.product_type
+
+            if product_base_type == self.product_base_type:
+                alternatives.append(instance)
+
+        if existing_instance is None and alternatives:
+            existing_instance = alternatives[0]
 
         context = self.create_context
         project_name = context.get_current_project_name()
