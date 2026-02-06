@@ -36,10 +36,22 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
 
         """
         existing_instance = None
+        alternatives = []
         for instance in self.create_context.instances:
-            if instance.product_type == self.product_type:
+            if instance.creator_identifier == self.identifier:
                 existing_instance = instance
                 break
+
+            # Property 'product_base_type' was added in ayon-core 1.8.0
+            product_base_type = instance.get("productBaseType")
+            if not product_base_type:
+                product_base_type = instance.product_type
+
+            if product_base_type == self.product_base_type:
+                alternatives.append(instance)
+
+        if existing_instance is None and alternatives:
+            existing_instance = alternatives[0]
 
         context = self.create_context
         project_name = context.get_current_project_name()
@@ -49,10 +61,12 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
         task_name = task_entity["name"]
         host_name = context.host_name
         if existing_instance is None:
-
             product_name = self.get_product_name(
-                project_name, folder_entity, task_entity, self.default_variant,
-                host_name
+                project_name,
+                folder_entity=folder_entity,
+                task_entity=task_entity,
+                variant=self.default_variant,
+                host_name=host_name,
             )
 
             data = {
@@ -62,21 +76,15 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
                 "productName": product_name
             }
 
-            data.update(self.get_dynamic_data(
-                project_name,
-                folder_entity,
-                task_entity,
-                self.default_variant,
-                host_name,
-                None
-            ))
-
             # TODO enable when Settings available
             # if not self.active_on_create:
             #     data["active"] = False
 
             new_instance = CreatedInstance(
-                self.product_type, product_name, data, self
+                product_type=self.product_base_type,
+                product_name=product_name,
+                data=data,
+                creator=self,
             )
             self._add_instance_to_context(new_instance)
             instance_name = f"{product_name}{self.suffix}"
@@ -90,13 +98,17 @@ class UnrealPublishCommit(UnrealBaseAutoCreator):
             return pub_instance
 
         if (
-                existing_instance["folderPath"] != folder_path
-                or existing_instance.get("task") != task_name
+            existing_instance["folderPath"] != folder_path
+            or existing_instance.get("task") != task_name
         ):
             product_name = self.get_product_name(
-                project_name, folder_entity, task_entity, self.default_variant,
-                host_name
+                project_name,
+                folder_entity=folder_entity,
+                task_entity=task_entity,
+                variant=self.default_variant,
+                host_name=host_name,
             )
+            existing_instance["productName"] = product_name
             existing_instance["folderPath"] = folder_path
             existing_instance["task"] = task_name
 

@@ -51,7 +51,9 @@ class CollectPerforceControl(pyblish.api.InstancePlugin):
         version_control_family = "perforce"
 
         host_name = instance.context.data["hostName"]
-        product_type = instance.data["productType"]
+        product_base_type = instance.data.get("productBaseType")
+        if not product_base_type:
+            product_base_type = instance.data["productType"]
         task_entity = instance.data["taskEntity"]
         task_name = task_type = None
         if task_entity:
@@ -60,7 +62,7 @@ class CollectPerforceControl(pyblish.api.InstancePlugin):
 
         filtering_criteria = {
             "host_names": host_name,
-            "product_types": product_type,
+            "product_base_types": product_base_type,
             "task_names": task_name,
             "task_types": task_type
         }
@@ -97,7 +99,7 @@ class CollectPerforceControl(pyblish.api.InstancePlugin):
                 profile["template_name"]
 
         self.log.debug(
-            "%s 'perforce' product_type "
-                 "for instance with '%s' product type.",
-            result_str, product_type
+            "%s 'perforce' product_base_type "
+                 "for instance with '%s' product base type.",
+            result_str, product_base_type
         )

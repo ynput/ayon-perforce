@@ -13,9 +13,9 @@ class CollectPerforceProfileModel(BaseSettingsModel):
         default_factory=list,
         title="Host names",
     )
-    product_types: list[str] = Field(
+    product_base_types: list[str] = Field(
         default_factory=list,
-        title="Families",
+        title="Product base types",
     )
     task_types: list[str] = Field(
         default_factory=list,
