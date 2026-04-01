@@ -32,8 +32,7 @@ class WebServer:
 
         self.loop: AbstractEventLoop = asyncio.new_event_loop()
         self.app = web.Application(loop=self.loop)
-        # self.port = self.find_free_port()
-        self.port = 64111
+        self.port = self.find_free_port()
         self.websocket_thread = WebServerThread(self,
             self.port, loop=self.loop
         )

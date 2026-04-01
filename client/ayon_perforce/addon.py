@@ -87,7 +87,7 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
 
         tmpl_data = get_template_data_with_names(project_name)
         tmpl_data.update({
-            "workstation": ayon_info.get_workstation_info(),
+            "workstation_info": ayon_info.get_workstation_info(),
             "task": task_entity,
             "folder": folder_entity
         })
