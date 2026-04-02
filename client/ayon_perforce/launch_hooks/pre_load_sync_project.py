@@ -18,7 +18,7 @@ from ayon_applications import (
     PreLaunchHook,
 )
 from ayon_core.addon import AddonsManager
-from ayon_core.tools.utils import qt_app_context
+from ayon_core.tools.utils import get_qt_app
 from ayon_perforce import is_perforce_enabled
 from ayon_perforce.addon import LaunchData
 from ayon_perforce.backend.rest_stub import PerforceRestStub
@@ -61,14 +61,13 @@ class SyncUnrealProject(PreLaunchHook):
         self.data["last_workfile_path"] = self._get_unreal_project_path(
             perforce_addon, launch_data)
 
-        with qt_app_context():
-            changes_tool = ChangesWindows(launch_data=launch_data)
-            changes_tool.show()
-            changes_tool.raise_()
-            changes_tool.activateWindow()
-            changes_tool.showNormal()
-
-            changes_tool.exec_()
+        get_qt_app()    # gets main QApplication instance
+        changes_tool = ChangesWindows(launch_data=launch_data)
+        changes_tool.show()
+        changes_tool.raise_()
+        changes_tool.activateWindow()
+        changes_tool.showNormal()
+        changes_tool.exec_()
 
     def _get_unreal_project_path(self,
             perforce_addon: PerforceAddon, launch_data: LaunchData) -> str:
