@@ -57,16 +57,16 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
     def get_connection_info(
         self,
         project_name: str,
-        task_entity: dict,
         folder_entity: dict,
+        task_entity: dict,
         project_settings: Optional[dict] = None,
     ) -> ConnectionInfo:
         """Get connection information for Perforce.
 
         Args:
             project_name (str): Name of the project.
-            task_entity (dict): Task entity.
             folder_entity (dict): Folder entity.
+            task_entity (dict): Task entity.
             project_settings (Optional[dict]): Project settings.
 
         Returns:

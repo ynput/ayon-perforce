@@ -86,8 +86,8 @@ class SyncUnrealProject(PreLaunchHook):
         """
         conn_info: ConnectionInfo = perforce_addon.get_connection_info(
             project_name=launch_data.project_name,
-            task_entity=launch_data.task_entity,
             folder_entity=launch_data.folder_entity,
+            task_entity=launch_data.task_entity,
             project_settings=launch_data.project_settings,
         )
 

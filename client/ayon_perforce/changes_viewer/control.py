@@ -39,8 +39,8 @@ class ChangesViewerController:
         self._conn_info: ConnectionInfo = (
             self._perforce_addon.get_connection_info(
                 project_name=launch_data.project_name,
-                task_entity=launch_data.task_entity,
                 folder_entity=launch_data.folder_entity,
+                task_entity=launch_data.task_entity,
             ))
 
         self._event_system = self._create_event_system()

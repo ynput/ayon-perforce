@@ -93,8 +93,8 @@ class CollectPerforceLogin(pyblish.api.ContextPlugin):
         """
         conn_info_payload = {
             "project_name": project_name,
-            "task_entity": context.data.get("taskEntity"),
             "folder_entity": context.data.get("folderEntity"),
+            "task_entity": context.data.get("taskEntity"),
             "project_settings": project_settings,
         }
         if not all(conn_info_payload.values()):
