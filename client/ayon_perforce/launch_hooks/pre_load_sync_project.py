@@ -55,7 +55,6 @@ class SyncUnrealProject(PreLaunchHook):
             folder_entity=self.data["folder_entity"],
             task_entity=self.data["task_entity"],
             project_settings=self.data["project_settings"],
-            folder_path=self.data["folder_path"],
         )
 
         self.data["last_workfile_path"] = self._get_unreal_project_path(
@@ -89,7 +88,6 @@ class SyncUnrealProject(PreLaunchHook):
             project_name=launch_data.project_name,
             task_entity=launch_data.task_entity,
             folder_entity=launch_data.folder_entity,
-            folder_path=launch_data.folder_path,
             project_settings=launch_data.project_settings,
         )
 

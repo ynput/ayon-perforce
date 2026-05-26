@@ -41,7 +41,6 @@ class ChangesViewerController:
                 project_name=launch_data.project_name,
                 task_entity=launch_data.task_entity,
                 folder_entity=launch_data.folder_entity,
-                folder_path=launch_data.folder_path,
             ))
 
         self._event_system = self._create_event_system()

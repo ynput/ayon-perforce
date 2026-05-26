@@ -36,7 +36,6 @@ class LaunchData:
     folder_entity: dict[str, Any]
     task_entity: dict[str, Any]
     project_settings: dict[str, Any]
-    folder_path: str
 
 
 class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
@@ -60,7 +59,6 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
         project_name: str,
         task_entity: dict,
         folder_entity: dict,
-        folder_path: str,
         project_settings: Optional[dict] = None,
     ) -> ConnectionInfo:
         """Get connection information for Perforce.
@@ -69,7 +67,6 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
             project_name (str): Name of the project.
             task_entity (dict): Task entity.
             folder_entity (dict): Folder entity.
-            folder_path (str): Folder path.
             project_settings (Optional[dict]): Project settings.
 
         Returns:
