@@ -76,11 +76,11 @@ class ChangesViewerController:
         )
 
     @staticmethod
-    def get_changes() -> dict:
+    def get_changes() -> list[dict]:
         """Get changes from Perforce.
 
         Returns:
-            dict: Changes from Perforce
+            list[dict]: Changes from Perforce
         """
         return PerforceRestStub.get_changes()
 
