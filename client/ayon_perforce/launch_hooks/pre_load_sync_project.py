@@ -34,7 +34,7 @@ class SyncUnrealProject(PreLaunchHook):
     It is triggered before Unreal launch as syncing inside would likely
     lead to locks.
     It is called before `pre_workfile_preparation` which is using
-    self.data["last_workfile_path"].
+    self.data["workfile_path"] or self.data["last_workfile_path"].
 
     It is expected that workspace would be created, connected
     and first version of project would be synced before.
@@ -55,11 +55,12 @@ class SyncUnrealProject(PreLaunchHook):
             folder_entity=self.data["folder_entity"],
             task_entity=self.data["task_entity"],
             project_settings=self.data["project_settings"],
-            folder_path=self.data["folder_path"],
         )
-
-        self.data["last_workfile_path"] = self._get_unreal_project_path(
-            perforce_addon, launch_data)
+        workfile_path = self._get_unreal_project_path(
+            perforce_addon, launch_data
+        )
+        self.data["workfile_path"] = workfile_path
+        self.data["last_workfile_path"] = workfile_path
 
         with qt_app_context():
             changes_tool = ChangesWindows(launch_data=launch_data)
