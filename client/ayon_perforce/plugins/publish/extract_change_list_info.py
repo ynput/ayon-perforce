@@ -1,54 +1,34 @@
-"""Extract change list info as a json file.
-
-Requires:
-    instance.context.data["perforce"]["change_info"] - info about
-        change list
-
-Provides:
-    new representation with name == "changelist_metadata"
-"""
-from __future__ import annotations
-
-import json
-import os
-import tempfile
-from typing import TYPE_CHECKING, ClassVar
+from os import environ
 
 from ayon_core.pipeline import publish
 
-if TYPE_CHECKING:
-    from logging import Logger
-
-    import pyblish.api
-
+from ayon_perforce.backend.rest_stub import PerforceRestStub
 
 class ExtractChangeListInfo(publish.Extractor):
-    """Store change list info into a json file to be integrated later."""
+    """Extract changelist info into deadline job."""
 
-    order = publish.Extractor.order
-    label = "Extract Change List Info"
-    families: ClassVar[list[str]] = ["changelist_metadata"]
-    targets: ClassVar[list[str]] = ["local"]
-    log: Logger
+    label = "Extract P4 Changelist info"
+    hosts = ["unreal"]
+    families = ["render.farm"]
 
-    def process(self, instance: pyblish.api.Instance) -> None:
-        """Process the plugin."""
-        change_info = instance.data.get("perforce", {}).get("change_info")
-        if not change_info:
-            self.log.warning("No change_list info collected, skipping.")
+    def process(self, instance):
+        ctx = instance.context.data
+        p4_data = ctx.get("perforce")
+        cl_info = PerforceRestStub.get_last_change_list()
 
-        staging_dir = tempfile.mkdtemp()
+        p4_data["changelist"] = cl_info["change"]
+        jobinfo = instance.data["deadline"].get("job_info")
+        p4_webserver = environ.get("PERFORCE_WEBSERVER_URL")
+        if not p4_webserver:
+            raise RuntimeError("Perforce WebServer isn't running. Something's wrong.")
 
-        file_name = f"{change_info['change']}.json"
-        change_list_path = os.path.join(staging_dir, file_name)
-        with open(change_list_path, "w", encoding="utf-8") as fp:
-            json.dump(change_info, fp)
+        jobinfo.EnvironmentKeyValue.update(
+            {
+                "AYON_P4_STREAM": p4_data["stream"],
+                "AYON_P4_CHANGELIST": p4_data["changelist"],
+                "AYON_UNREAL_VERSION": "5.7",   # todo: get from hostaddon
+                "PERFORCE_WEBSERVER_URL": p4_webserver
+            }
+        )
 
-        repre_data = {
-            "name": "changelist_metadata",
-            "ext": "json",
-            "files": file_name,
-            "stagingDir": staging_dir
-        }
-
-        instance.data["representations"].append(repre_data)
+        self.log.info(f"Changelist info: {cl_info}")
