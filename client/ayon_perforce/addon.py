@@ -122,13 +122,13 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
             change_id: Change ID to sync to.
 
         """
-        from ayon_perforce.backend.rest_stub import PerforceRestStub
+        from client.ayon_perforce.api.commands import P4Commands
 
-        PerforceRestStub.login(**asdict(conn_info))
+        P4Commands.login(**asdict(conn_info))
 
-        workspace_dir = PerforceRestStub.get_workspace_dir(
+        workspace_dir = P4Commands.get_workspace_dir(
             conn_info.workspace_name)
-        PerforceRestStub.sync_to_version(
+        P4Commands.sync_to_version(
             f"{workspace_dir}/...", change_id)
 
     def tray_init(self) -> None:

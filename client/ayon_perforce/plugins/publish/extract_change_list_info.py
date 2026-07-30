@@ -1,8 +1,6 @@
-from os import environ
-
 from ayon_core.pipeline import publish
 
-from ayon_perforce.backend.rest_stub import PerforceRestStub
+from client.ayon_perforce.api.commands import P4Commands
 
 class ExtractChangeListInfo(publish.Extractor):
     """Extract changelist info into deadline job."""
@@ -14,20 +12,16 @@ class ExtractChangeListInfo(publish.Extractor):
     def process(self, instance):
         ctx = instance.context.data
         p4_data = ctx.get("perforce")
-        cl_info = PerforceRestStub.get_last_change_list()
+        cl_info = P4Commands.get_last_change_list()
 
         p4_data["changelist"] = cl_info["change"]
         jobinfo = instance.data["deadline"].get("job_info")
-        p4_webserver = environ.get("PERFORCE_WEBSERVER_URL")
-        if not p4_webserver:
-            raise RuntimeError("Perforce WebServer isn't running. Something's wrong.")
 
         jobinfo.EnvironmentKeyValue.update(
             {
                 "AYON_P4_STREAM": p4_data["stream"],
                 "AYON_P4_CHANGELIST": p4_data["changelist"],
                 "AYON_UNREAL_VERSION": "5.7",   # todo: get from hostaddon
-                "PERFORCE_WEBSERVER_URL": p4_webserver
             }
         )
 

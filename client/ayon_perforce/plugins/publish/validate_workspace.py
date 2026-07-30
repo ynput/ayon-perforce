@@ -18,7 +18,7 @@ from ayon_core.pipeline import PublishXmlValidationError
 from ayon_core.pipeline.publish import ValidateContentsOrder
 from ayon_core.pipeline import PublishValidationError, PublishXmlValidationError
 
-from ayon_perforce.backend.rest_stub import PerforceRestStub
+from client.ayon_perforce.api.commands import P4Commands
 
 
 class WorkspaceRepairAction(pyblish.api.Action):
@@ -60,7 +60,7 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
                 "No workspace name found in Perforce connection info.")
 
         # validate workspace_dir
-        workspace_dir = PerforceRestStub.get_workspace_dir(
+        workspace_dir = P4Commands.get_workspace_dir(
             workspace_name=ws_name)
         if not workspace_dir or not os.path.exists(workspace_dir):
             project_name = context.data.get("projectName")
@@ -72,7 +72,7 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
         context.data["workspace_dir"] = workspace_dir
 
         # validate stream
-        stream = PerforceRestStub.get_stream(
+        stream = P4Commands.get_stream(
             workspace_name=ws_name)
         if not stream:
             msg = (
@@ -84,7 +84,7 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
         p4_data["stream"] = stream
 
         # validate uncomitted changes
-        uncommitted_changes = PerforceRestStub.get_uncommitted_changes()
+        uncommitted_changes = P4Commands.get_uncommitted_changes()
         if uncommitted_changes:
             for change in uncommitted_changes:
                 self.log.error(f"Uncommitted change: {change}")
@@ -184,7 +184,7 @@ class UncommittedChangesRepairer(ErrorMessageBox):
             client_file = Path(client_file)
             file_to_revert = self.workspace_dir / client_file
 
-            PerforceRestStub.revert(path=file_to_revert.as_posix())
+            P4Commands.revert(path=file_to_revert.as_posix())
             self.lv_uncommitted_changes.model().removeRow(index.row())
 
         if self.lv_uncommitted_changes.model().rowCount(QtCore.QModelIndex()) == 0:
@@ -205,5 +205,5 @@ class UncommittedChangesRepairer(ErrorMessageBox):
 
         changelist_message = self.mb_submit_message.toPlainText()
         changelist_message = f"[PRE PUBLISH] {changelist_message}"
-        PerforceRestStub.submit_default_changelist(changelist_message)
+        P4Commands.submit_default_changelist(changelist_message)
         self.accept()
