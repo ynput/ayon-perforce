@@ -12,9 +12,9 @@ from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 import pyblish.api
-from ayon_common.utils import get_local_site_id
+from ayon_core.lib import get_local_site_id
 from ayon_perforce import is_perforce_enabled
-from client.ayon_perforce.api.commands import P4Commands
+from ayon_perforce.api.commands import P4Commands
 
 if TYPE_CHECKING:
     from logging import Logger

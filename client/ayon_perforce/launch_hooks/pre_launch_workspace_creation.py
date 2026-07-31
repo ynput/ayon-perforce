@@ -58,6 +58,9 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
 
         # get p4username from registry
         owner = get_local_login()[0]
+        if not owner:
+            msg = "Cannot determine p4 user."
+            raise RuntimeError(msg)
 
         # workspace template
         ws_tmpl = proj_setts["perforce"]["workspace"]["template"]
@@ -111,8 +114,3 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
             errmsg = f"Failed to checkout workspace. {err}"
             raise RuntimeError(errmsg) from err
 
-        # api: assuming username is used in template we can make username optional
-
-        # api: call_command from ayon
-        # create if necessary
-        # set $P4CLIENT here?

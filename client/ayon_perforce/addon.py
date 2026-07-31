@@ -122,7 +122,7 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
             change_id: Change ID to sync to.
 
         """
-        from client.ayon_perforce.api.commands import P4Commands
+        from ayon_perforce.api.commands import P4Commands
 
         P4Commands.login(**asdict(conn_info))
 
@@ -155,10 +155,6 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
 
     def tray_start(self) -> None:
         """Called when the tray is starting."""
-        if self.enabled:
-            from ayon_perforce.backend.communication_server import WebServer
-            self.webserver = WebServer()
-            self.webserver.start()
 
     def tray_menu(self, tray_menu: dict[str, Any]) -> None:
         """Add Perforce menu to the tray.

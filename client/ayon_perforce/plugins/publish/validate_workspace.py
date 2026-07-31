@@ -7,18 +7,16 @@ from pathlib import Path
 from typing import ClassVar
 
 import pyblish.api
-from qtpy import QtCore, QtWidgets
-
+from ayon_core.pipeline import (
+    PublishXmlValidationError,
+)
 from ayon_core.pipeline.publish import (
-    ValidateContentsOrder,
     PublishValidationError,
+    ValidateContentsOrder,
 )
 from ayon_core.tools.utils import ErrorMessageBox
-from ayon_core.pipeline import PublishXmlValidationError
-from ayon_core.pipeline.publish import ValidateContentsOrder
-from ayon_core.pipeline import PublishValidationError, PublishXmlValidationError
-
-from client.ayon_perforce.api.commands import P4Commands
+from ayon_perforce.api.commands import P4Commands
+from qtpy import QtCore, QtWidgets
 
 
 class WorkspaceRepairAction(pyblish.api.Action):

@@ -8,7 +8,7 @@ from ayon_core.addon import AddonsManager
 from ayon_core.lib.events import QueuedEventSystem
 from ayon_core.pipeline import registered_host
 
-from client.ayon_perforce.api.commands import P4Commands
+from ayon_perforce.api.commands import P4Commands
 
 if TYPE_CHECKING:
     from ayon_core.host import HostBase
@@ -74,15 +74,6 @@ class ChangesViewerController:
 
         P4Commands.login(**asdict(self._conn_info)
         )
-
-    @staticmethod
-    def get_changes() -> list[dict]:
-        """Get changes from Perforce.
-
-        Returns:
-            list[dict]: Changes from Perforce
-        """
-        return P4Commands.get_changes()
 
     def sync_to(self, change_id: int) -> None:
         """Sync to specific changelist number.

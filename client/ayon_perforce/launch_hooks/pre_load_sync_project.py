@@ -21,7 +21,7 @@ from ayon_core.addon import AddonsManager
 from ayon_core.tools.utils import get_qt_app
 from ayon_perforce import is_perforce_enabled
 from ayon_perforce.addon import LaunchData
-from client.ayon_perforce.api.commands import P4Commands
+from ayon_perforce.api.commands import P4Commands
 from ayon_perforce.changes_viewer import ChangesWindows
 
 if TYPE_CHECKING:

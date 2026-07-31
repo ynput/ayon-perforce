@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 from qtpy import QtCore, QtGui
 
+from ..api.commands import P4Commands
+
 if TYPE_CHECKING:
     from .control import ChangesViewerController
 
@@ -43,19 +45,19 @@ class ChangesModel(QtGui.QStandardItemModel):
     def refresh(self) -> None:
         """Refresh the model."""
         self.removeRows(0, self.rowCount())  # Clear existing data
-        changes = self._controller.get_changes()
+        changes = list(P4Commands().changes())
         if not changes:
             return
 
         for change in changes:
-            date_time = datetime.fromtimestamp(int(change["time"]), tz=TZ_INFO)
+            date_time = change.date
             date_string = date_time.strftime("%Y%m%dT%H%M%SZ")
 
-            number_item = QtGui.QStandardItem(change["change"])
+            number_item = QtGui.QStandardItem(change.change)
             # Store number for sorting
-            number_item.setData(int(change["change"]), CHANGE_ROLE)
-            desc_item = QtGui.QStandardItem(change["desc"])
-            author_item = QtGui.QStandardItem(change["user"])
+            number_item.setData(int(change.change), CHANGE_ROLE)
+            desc_item = QtGui.QStandardItem(change.description)
+            author_item = QtGui.QStandardItem(change.user)
             date_item = QtGui.QStandardItem(date_string)
             self.appendRow([number_item, desc_item, author_item, date_item])
 
