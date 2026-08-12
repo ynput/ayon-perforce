@@ -120,7 +120,7 @@ def datetime_to_perforce_date(date: datetime.datetime) -> str:
     return date.strftime(PERFORCE_DATE_FORMAT)
 
 
-def _is_datetime_annotation(annotation: Any) -> bool:  # noqa: ANN401
+def _is_datetime_annotation(annotation: Any) -> bool:  # ruff: ignore[any-type]
     if annotation is datetime.datetime:
         return True
     origin = get_origin(annotation)
@@ -171,7 +171,7 @@ def _enable_alias_kwargs(cls: type[R]) -> type[R]:
 
     original_init = cls.__init__
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN001, ANN401, N807
+    def __init__(self, *args: Any, **kwargs: Any) -> None:  # ruff: ignore[any-type, dunder-function-name, missing-type-function-argument]
         """Constructor to handle aliases.
 
         Raises:
@@ -194,7 +194,7 @@ def _enable_alias_kwargs(cls: type[R]) -> type[R]:
     return cls
 
 
-def alias_dataclass(_cls: type[R] | None = None, **kwargs: Any):  # noqa: ANN202, ANN401
+def alias_dataclass(_cls: type[R] | None = None, **kwargs: Any):  # ruff: ignore[any-type, missing-return-type-private-function]
     """Dataclass decorator with support for alias kwargs in constructor.
 
     This is poor-man substitution for pydantic aliases. It breaks mypy
@@ -569,8 +569,8 @@ class ChangeInfo:
 
     path: str | None = field(default=None)
     stream: str | None = field(default=None)
-    streamStatus: str | None = field(default=None)  # noqa: N815
-    oldChange: str | None = field(default=None)  # noqa: N815
+    streamStatus: str | None = field(default=None)  # ruff: ignore[mixed-case-variable-in-class-scope]
+    oldChange: str | None = field(default=None)  # ruff: ignore[mixed-case-variable-in-class-scope]
 
 
 class Action(Enum):
@@ -607,7 +607,15 @@ class ActionMessage:
 
     @classmethod
     def from_info_data(cls, data: PerforceDict) -> ActionMessage:
-        """Create instance from an 'info' dict of an action command."""
+        """Create instance from an 'info' dict of an action command.
+
+        Args:
+            data (PerforceDict): The 'info' dict from an action command.
+
+        Returns:
+            ActionMessage: An instance of ActionMessage.
+
+        """
         path, _, message = data["data"].rpartition(" - ")
         level = MessageLevel(int(data["level"]))
         return cls(
