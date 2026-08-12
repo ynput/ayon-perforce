@@ -97,19 +97,25 @@ class P4Workspace:
 
         """
         try:
+            stream = data.get("Stream")
+            depot = data.get("Depot")
+            if not depot and isinstance(stream, str) and stream.startswith("//"):
+                parts = stream.split("/")
+                if len(parts) > 2:
+                    depot = parts[2]
+
             ws = P4Workspace(
-                name=data.get("Name"),
+                name=data.get("Client") or data.get("Name"),
                 owner=data["Owner"],
-                host=data["Host"],
+                host=data.get("Host", ""),
                 root=data["Root"],
-                depot=data.get("Depot"),
-                options=data.get("Options", "").split(" "),
-                stream=data.get("Stream")
+                depot=depot,
+                options=str(data.get("Options", "")).split(),
+                stream=stream,
             )
-        except AttributeError as e:
+        except (AttributeError, KeyError, TypeError) as e:
             msg = f"Failed to create P4Workspace from dict: {e}"
             raise P4WorkspaceError(msg) from e
-
         return ws
 
     def __post_init__(self):
