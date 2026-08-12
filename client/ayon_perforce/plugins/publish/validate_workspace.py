@@ -82,7 +82,7 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
         p4_data["stream"] = stream
 
         # validate uncomitted changes
-        uncommitted_changes = P4Commands.get_uncommitted_changes()
+        uncommitted_changes = P4Commands.get_uncommitted_changes(ws_name)
         if uncommitted_changes:
             for change in uncommitted_changes:
                 self.log.error(f"Uncommitted change: {change}")

@@ -77,8 +77,8 @@ class P4Workspace:
         self.root = root
         self.depot = depot
         self.options = options or []
-        if stream:
-            self.stream = f"//{depot}/{stream}"
+        self.stream = stream
+        self.__post_init__()
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> P4Workspace:

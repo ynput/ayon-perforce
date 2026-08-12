@@ -47,7 +47,7 @@ log = getLogger(__name__)
 R = TypeVar("R")
 
 
-class P4Commands:  # noqa: PLR0904
+class P4Commands:  # ruff: ignore[too-many-public-methods]
     """Perforce stub that invokes the ``p4`` CLI directly via subprocess."""
 
     _connection: Connection | None = None
@@ -141,11 +141,11 @@ class P4Commands:  # noqa: PLR0904
         all_records = cls._parse_marshal(proc.stdout)
         error_records = [
             r for r in all_records
-            if r.get("code") == MarshalCode.ERROR and int(r["severity"]) <= max_severity.value  # noqa: E501
+            if r.get("code") == MarshalCode.ERROR.value and int(r["severity"]) <= max_severity.value  # noqa: E501
         ]
         normal_records = [
             r for r in all_records
-            if r.get("code") != MarshalCode.ERROR
+            if r.get("code") != MarshalCode.ERROR.value
         ]
 
         if proc.returncode != 0 and not normal_records:
@@ -156,7 +156,7 @@ class P4Commands:  # noqa: PLR0904
             else:
                 msg = proc.stderr.decode(errors="replace").strip()
             raise CommandExecutionError(
-                msg or f"p5 command failed (code: {proc.returncode}): {cmd}",
+                msg or f"p4 command failed (code: {proc.returncode}): {cmd}",
                 command=cmd,
                 data=error_records[0] if error_records else None,
             )
@@ -801,7 +801,7 @@ class P4Commands:  # noqa: PLR0904
         return list(records)
 
     @staticmethod
-    def get_uncommitted_changes(client: str | None) -> list[ChangeInfo]:
+    def get_uncommitted_changes(client: str | None = None) -> list[ChangeInfo]:
         """Return pending (uncommitted) changelists for the current client.
 
         Args:
@@ -844,9 +844,6 @@ class P4Commands:  # noqa: PLR0904
         pending = self.changes(status=ChangeStatus.PENDING, long_output=True)
         cl_number: str | None = None
         for record in pending:
-            if record.description.strip() == comment.strip():
-                cl_number = str(record.change)
-                break
             if record.description.strip() == comment.strip():
                 cl_number = str(record.change)
                 break
