@@ -254,6 +254,16 @@ class MarshalCode(Enum):
     The message is contained in the 'data' field.
     """
 
+    def __hash__(self) -> int:
+        return hash(self.value)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, MarshalCode):
+            return self.value == other.value
+        if isinstance(other, str):
+            return self.value == other
+        return NotImplemented
+
 
 class MessageSeverity(Enum):
     """Perforce message severity levels."""
