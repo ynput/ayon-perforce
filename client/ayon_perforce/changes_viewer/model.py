@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 from qtpy import QtCore, QtGui
 
-from ..api.commands import P4Commands
+from ayon_perforce.api.commands import P4Commands
+from ayon_perforce.api.models import ChangeStatus
 
 if TYPE_CHECKING:
     from .control import ChangesViewerController
@@ -45,7 +46,9 @@ class ChangesModel(QtGui.QStandardItemModel):
     def refresh(self) -> None:
         """Refresh the model."""
         self.removeRows(0, self.rowCount())  # Clear existing data
-        changes = list(P4Commands().changes())
+        client = P4Commands().get_client()
+        changes = list(P4Commands().changes(
+            status=ChangeStatus.SUBMITTED, stream=client.stream))
         if not changes:
             return
 
@@ -63,7 +66,7 @@ class ChangesModel(QtGui.QStandardItemModel):
 
     def data(self, index: QtCore.QModelIndex,
              role: Optional[int] = QtGui.Qt.DisplayRole
-    ) -> Any:  # noqa: ANN401
+    ) -> Any:  # ruff: ignore[any-type]
         """Return data for the index.
 
         Returns:

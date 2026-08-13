@@ -11,11 +11,11 @@ isn't really consistent on the names it returns, so lesser evil was chosen.
 from __future__ import annotations
 
 import datetime
+import pathlib  # ruff: ignore[typing-only-standard-library-import]
 import shlex
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from typing import (
-    TYPE_CHECKING,
     Any,
     Literal,
     NamedTuple,
@@ -24,9 +24,6 @@ from typing import (
     get_origin,
     get_type_hints,
 )
-
-if TYPE_CHECKING:
-    import pathlib
 
 __all__ = [
     "Action",
@@ -166,8 +163,7 @@ def _enable_alias_kwargs(cls: type[R]) -> type[R]:
         if (alias := data_field.metadata.get("alias"))
         and alias != data_field.name
     }
-    if not alias_to_name:
-        return cls
+    field_names = {data_field.name for data_field in fields(cls)}
 
     original_init = cls.__init__
 
@@ -177,6 +173,10 @@ def _enable_alias_kwargs(cls: type[R]) -> type[R]:
         Raises:
             TypeError: when alias and property name is the same.
         """
+        # "code" is added by ``p4 -G`` to every response (e.g. "stat")
+        # and is not part of the model, so it must be discarded.
+        if "code" not in field_names:
+            kwargs.pop("code", None)
         for alias, name in alias_to_name.items():
             if alias not in kwargs:
                 continue
@@ -502,6 +502,30 @@ class Client:
     and files in the workspace."""
 
     stream: str | None = field(metadata={"alias": "Stream"}, default=None)
+
+    line_end: str | None = field(metadata={"alias": "LineEnd"}, default=None)
+
+    backup: str | None = field(metadata={"alias": "Backup"}, default=None)
+
+    @staticmethod
+    def client_from_data(**data: Any) -> Client:  # ruff: ignore[any-type]
+        """Create a Client instance from a dictionary of data.
+
+        Handle indexed views and convert them to a list of View instances.
+        P4 will return View0, View1, View2, ... in the dictionary,
+        but we want a list of View instances.
+
+        Returns:
+            Client: A Client instance with the data from the dictionary.
+
+        """
+        views = []
+        i = 0
+        while f"View{i}" in data:
+            views.append(View.from_string(data.pop(f"View{i}")))
+            i += 1
+        data["views"] = views
+        return Client(**data)  # type: ignore[arg-type]
 
 
 class ChangeStatus(Enum):

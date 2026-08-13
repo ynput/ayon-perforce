@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 from ayon_applications import (
     LaunchTypes,
@@ -27,11 +27,8 @@ def get_from_workspaceinfo(
     """
     ws = None
     stream = None
-    for key, value in ws_info.items():
-        if "Client:" in key:
-            ws = value.strip()
-        if "Stream:" in key:
-            stream = value.strip()
+    ws = ws_info.get("clientName")
+    stream = ws_info.get("clientStream")
     return ws, stream
 
 
@@ -81,7 +78,7 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
         template_data["ext"] = "uproject"
         template_data["workstation_info"] = get_workstation_info()
         # uproject_name = Path(ue_tmpl.format(template_data)["file"]).stem
-        self.log.debug(f"Template data: {template_data = }")  # noqa: G004
+        self.log.debug("Template data: %s", template_data)
 
         p4_data = {}
         for key in env:
@@ -95,7 +92,7 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
         if not p4_data:
             msg = "No Perforce data found in environment"
             raise ValueError(msg)
-        self.log.debug(f"Perforce data: {p4_data = }")  # noqa: G004
+        self.log.debug("Perforce data: %s", p4_data)
 
         # find render node's workspace
         p4_settings = self.data["project_settings"]["perforce"]
@@ -115,10 +112,10 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
 
         # get current clientinfo for newly checked out workspace
         curr_ws_info = P4Commands.run_p4("info")[0]
-        self.log.debug(f"Workspace Info: {curr_ws_info = }")  # noqa: G004
+        self.log.debug("Workspace Info: %s", curr_ws_info)
         curr_ws, curr_stream = get_from_workspaceinfo(curr_ws_info)
-        self.log.debug(f"Current Workspace: {curr_ws = }")  # noqa: G004
-        self.log.debug(f"Current Stream: {curr_stream = }")  # noqa: G004
+        self.log.debug("Current Workspace: %s", curr_ws)
+        self.log.debug("Current Stream: %s", curr_stream)
 
         # check if we're on the correct stream
         if curr_stream != p4_data["stream"]:
@@ -129,8 +126,8 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
 
         # revert any changes
         revert_result = P4Commands.run_p4("revert", "//...")
-        self.log.debug(f"Revert result: {revert_result = }")  # noqa: G004
+        self.log.debug("Revert result: %s", revert_result)
 
         # sync to changelist
         sync_result = P4Commands.run_p4("sync", f"@{p4_data['changelist']}")
-        self.log.debug(f"Sync result: {sync_result = }")  # noqa: G004
+        self.log.debug("Sync result: %s", sync_result)

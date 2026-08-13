@@ -4,11 +4,14 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass
 from os import environ
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ayon_core.lib import AYONSecureRegistry, Logger
 
 from ayon_perforce.api.commands import P4Commands
+
+if TYPE_CHECKING:
+    from ayon_perforce.api.models import PerforceDict
 
 log = Logger.get_logger(__name__)
 
@@ -47,9 +50,9 @@ class P4Workspace:
     stream: str | None = None
     options: list[str] | None = None
 
-    def __init__(
+    def __init__(  # ruff: ignore[too-many-arguments]
             self,
-
+            *,
             owner: str,
             host: str,
             root: str,
@@ -85,7 +88,8 @@ class P4Workspace:
         """Create a P4Workspace instance from a dictionary.
 
         Args:
-            data (dict[str, Any]): A dictionary containing workspace properties.
+            data (dict[str, Any]): A dictionary containing
+                workspace properties.
 
         Returns:
             P4Workspace: An instance of P4Workspace initialized
@@ -96,14 +100,15 @@ class P4Workspace:
                 or has invalid values.
 
         """
-        try:
-            stream = data.get("Stream")
-            depot = data.get("Depot")
-            if not depot and isinstance(stream, str) and stream.startswith("//"):
-                parts = stream.split("/")
-                if len(parts) > 2:
-                    depot = parts[2]
+        depot_stream_split_parts = 2
+        stream = data.get("Stream")
+        depot = data.get("Depot")
+        if not depot and isinstance(stream, str) and stream.startswith("//"):
+            parts = stream.split("/")
+            if len(parts) > depot_stream_split_parts:
+                depot = parts[depot_stream_split_parts]
 
+        try:
             ws = P4Workspace(
                 name=data.get("Client") or data.get("Name"),
                 owner=data["Owner"],
@@ -134,8 +139,8 @@ class P4Workspace:
         """Update the workspace from generated spec and activates it.
 
         Args:
-            force (bool, optional): If True, forces the switch even if there are
-                opened files. Defaults to False.
+            force (bool, optional): If True, forces the switch even
+                if there are opened files. Defaults to False.
 
         Raises:
             RuntimeError: If the depot or stream are not present,
@@ -164,12 +169,13 @@ class P4Workspace:
             raise RuntimeError(msg)
 
         # check if the depot is available
-        if self.depot not in P4Commands.get_available_depots():
+        depots = P4Commands.get_available_depots()
+        if self.depot not in depots:
             # depot is not in p4 spec
             msg = (
                 f"Depot `{self.depot}` does not exist on the Perforce server."
             )
-            log.debug(f"{P4Commands.get_available_depots() = }")
+            log.debug("Available depots: %s", depots)
             raise RuntimeError(msg)
 
         # Check if workspace has opened files and
@@ -183,13 +189,14 @@ class P4Workspace:
             curr_ws = P4Workspace.current()
             if not curr_ws.owner:
                 curr_ws.owner = self.owner
-            log.debug(f"{curr_ws = }")
+            log.debug("Current workspace: %s", curr_ws)
             if P4Workspace.opened_files() and curr_ws.stream != self.stream:
                 msg = "Workspace has opened files. Can't switch streams."
                 raise RuntimeError(msg)
 
         # generate a new p4 spec and set it as current workspace
         spec = self.generate_spec()
+        log.debug("Generated spec: %s", spec)
         switch_cmd = ["client", "-i"]
         if force:
             switch_cmd.append("-f")
@@ -199,8 +206,8 @@ class P4Workspace:
         # set instance variables based on created spec
         cmd_out = P4Commands.run_p4("client", "-o", self.name)[0]
         ws_specs = P4Workspace.from_dict(cmd_out)
-        log.debug(f"{cmd_out = }")
-        log.debug(f"cli spec: {ws_specs = }")
+        log.debug("cmd_out: %s", cmd_out)
+        log.debug("cli spec: %s", ws_specs)
         self.name = ws_specs.name
         self.owner = ws_specs.owner
         self.root = ws_specs.root
@@ -234,16 +241,19 @@ class P4Workspace:
                 self.root)
             return
         total_sync_changes: int = len(sync_dry_run)
-        log.debug(f"total changes to sync: {total_sync_changes}")
+        log.debug("total changes to sync: %s", total_sync_changes)
         if total_sync_changes == 0:
             log.info("Nothing to sync, workspace already up-to-date.")
             return
-        from pprint import pprint
         try:
+            args = ["sync"]
+            if force:
+                args.append("-f")
+            args.append(f"{self.root}/...")
             result = P4Commands.run_p4(
-                "sync", "-f" if force else "", f"{self.root}/...")
+                *args)
             for idx, item in enumerate(result):
-                msg = f"{idx + 1} / {total_sync_changes} - {item}"
+                log.debug("%s / %s - %s", idx + 1, total_sync_changes, item)
             if force:
                 # reconcile all files in the workspace, takes some time
                 cmd = ["p4", "clean", "-n", f"{self.root}/..."]
@@ -267,33 +277,30 @@ class P4Workspace:
             raise RuntimeError from e
 
     def generate_spec(
-            self, stream: str | None = None) -> str:
-        """Serialize specs structure from P4Workspace instance.
+            self, stream: str | None = None) -> PerforceDict:
+        """Generate the spec structure from the P4Workspace instance.
+
+        The result is a plain dict, directly usable as ``stdin_data``
+        for :meth:`P4Commands.run_p4`, which marshals it for ``p4 -G``.
 
         Args:
             stream (str | None): The stream to use for the spec. If None, the
                 current workspace stream is used.
 
         Returns:
-            str: serialized spec structure.
+            PerforceDict: spec structure ready to be marshalled.
 
         """
         options_str = " ".join(self.options or [])
-        spec = {
-            "Client": self.name,
-            "Host": self.host,
+        return {
+            "Client": self.name or "",
+            "Host": self.host or "",
             "Owner": self.owner,
             "Description": "Created by Ayon Launcher Hook",
             "Root": self.root,
-            "Stream": stream or self.stream,
+            "Stream": str(stream or self.stream or ""),
             "Options": options_str,
         }
-        out = ""
-        for key, value in spec.items():
-            out = f"{key}: {value}\n"
-
-        out += "\n"
-        return out
 
 
     @classmethod
@@ -317,12 +324,18 @@ class P4Workspace:
             list[str]: A list of opened files.
         """
         cmd_out: list = P4Commands.run_p4("opened")
-        log.debug(f"opened files: {cmd_out}")
+        log.debug("opened files: %s", cmd_out)
         return cmd_out
 
 
 def get_local_login() -> tuple[str | None, str | None]:
-    """Get the Perforce Login entry from the local registry."""
+    """Get the Perforce Login entry from the local registry.
+
+    Returns:
+        tuple[str | None, str | None]: A tuple containing the username and
+            password. If not found, returns (None, None).
+
+    """
     try:
         reg = AYONSecureRegistry("perforce/username")
         username = reg.get_item("value")

@@ -102,7 +102,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
     def run_p4(
         cls,
         *args: str,
-        stdin_data: PerforceDict | None = None,
+        stdin_data: PerforceDict | str | None = None,
         max_severity: MessageSeverity = MessageSeverity.EMPTY,
     ) -> list[dict]:
         """Execute ``p4 -G <args>`` and return decoded marshal records.
@@ -125,11 +125,17 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         p4_exe = shutil.which("p4") or "p4"
         cmd = [p4_exe, "-G"] + [str(a) for a in args]
         log.debug("p4 cmd: %s", " ".join(cmd))
+        # `marshal` requires exact builtin types, so str/dict subclasses
+        # (e.g. AYON's `TemplateResult`) must be coerced before dumping.
+        plain_stdin_data = (
+            {str(k): str(v) for k, v in stdin_data.items()}
+            if isinstance(stdin_data, dict) else stdin_data
+        )
         try:
             proc = subprocess.run(
                 cmd,
                 input=marshal.dumps(
-                    stdin_data, 0) if stdin_data else None,
+                    plain_stdin_data, 0) if plain_stdin_data else None,
                 capture_output=True,
                 check=False,
                 env=cls._get_env(),
@@ -181,7 +187,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
             raise UserNotFoundError(msg)
         return User(**data)  # type: ignore[arg-type]
 
-    def get_client(self, client: str) -> Client:
+    def get_client(self, client: str | None = None) -> Client:
         """Get client workspace specification.
 
         Command:
@@ -197,11 +203,14 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
             ClientNotFoundError: If client does not exist.
 
         """
+        if not client:
+            data = self.run_p4("client", "-o")[0]
+            return Client.client_from_data(**data)  # type: ignore[arg-type]
         data = self.run_p4("client", "-o", client)[0]
         if "Update" not in data:
             msg = f"Client {client!r} does not exists"
             raise ClientNotFoundError(msg)
-        return Client(**data)  # type: ignore[arg-type]
+        return Client.client_from_data(**data)  # type: ignore[arg-type]
 
     def get_change(self, change: int) -> Change:
         """Get changelist specification.
@@ -293,11 +302,9 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
             command += ["-l"]
 
         for data in self.run_p4(*command):
-            print(f"changes: {data = }")
             if data.get("code") == MarshalCode.ERROR:
                 msg = data.get("data", "unknown p4 error")
                 raise CommandExecutionError(msg, command=command, data=data)
-            data.pop("code")
             yield ChangeInfo(**data)  # type: ignore[arg-type]
 
     def add(
