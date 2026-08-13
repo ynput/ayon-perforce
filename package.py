@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Package declaring addon version."""
 name = "perforce"
 title = "Perforce"

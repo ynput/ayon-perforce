@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 from ayon_applications import (
     LaunchTypes,
@@ -113,4 +113,3 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
         except Exception as err:
             errmsg = f"Failed to checkout workspace. {err}"
             raise RuntimeError(errmsg) from err
-

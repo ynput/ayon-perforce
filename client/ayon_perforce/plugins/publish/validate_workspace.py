@@ -156,6 +156,7 @@ class ChangesSelectionListModel(QtCore.QAbstractListModel):
         self.endRemoveRows()
         return True
 
+
 class UncommittedChangesRepairer(ErrorMessageBox):
     mb_submit_message: QtWidgets.QMessageBox = None
     lv_uncommitted_changes: QtWidgets.QListView = None

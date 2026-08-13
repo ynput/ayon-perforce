@@ -147,7 +147,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         all_records = cls._parse_marshal(proc.stdout)
         error_records = [
             r for r in all_records
-            if r.get("code") == MarshalCode.ERROR.value and int(r["severity"]) <= max_severity.value  # noqa: E501
+            if r.get("code") == MarshalCode.ERROR.value and int(r["severity"]) <= max_severity.value  # ruff: ignore[line-too-long]
         ]
         normal_records = [
             r for r in all_records
@@ -619,7 +619,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         stream = io.BytesIO(data)
         while True:
             try:
-                record = marshal.load(stream)  # noqa: S302
+                record = marshal.load(stream)  # ruff: ignore[suspicious-marshal-usage]
             except EOFError:
                 break
             if not isinstance(record, dict):

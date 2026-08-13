@@ -1,9 +1,6 @@
-from .window import (
-    show,
-    ChangesWindows
-)
+from .window import ChangesWindows, show
 
 __all__ = (
-    "show",
-    "ChangesWindows"
+    "ChangesWindows",
+    "show"
 )

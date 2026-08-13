@@ -21,18 +21,18 @@ Package contains server side files directly,
 client side code zipped in `private` subfolder.
 """
 
-import os
-import sys
-import re
-import io
-import shutil
-import platform
 import argparse
-import logging
 import collections
-import zipfile
+import io
+import logging
+import os
+import platform
+import re
+import shutil
 import subprocess
-from typing import Optional, Iterable, Pattern, Union, List, Tuple
+import sys
+import zipfile
+from typing import Iterable, List, Optional, Pattern, Tuple, Union
 
 import package
 
@@ -58,24 +58,24 @@ __version__ = "{ADDON_VERSION}"
 # Patterns of directories to be skipped for server part of addon
 IGNORE_DIR_PATTERNS: List[Pattern] = [
     re.compile(pattern)
-    for pattern in {
+    for pattern in (
         # Skip directories starting with '.'
         r"^\.",
         # Skip any pycache folders
         "^__pycache__$"
-    }
+    )
 ]
 
 # Patterns of files to be skipped for server part of addon
 IGNORE_FILE_PATTERNS: List[Pattern] = [
     re.compile(pattern)
-    for pattern in {
+    for pattern in (
         # Skip files starting with '.'
         # NOTE this could be an issue in some cases
         r"^\.",
         # Skip '.pyc' files
         r"\.pyc$"
-    }
+    )
 ]
 
 
@@ -127,7 +127,6 @@ def safe_copy_file(src_path: str, dst_path: str):
         src_path (str): File path that will be copied.
         dst_path (str): Path to destination file.
     """
-
     if src_path == dst_path:
         return
 
@@ -166,7 +165,6 @@ def find_files_in_subdir(
         list[tuple[str, str]]: List of tuples with path to file and parent
             directories relative to 'src_path'.
     """
-
     if ignore_file_patterns is None:
         ignore_file_patterns = IGNORE_FILE_PATTERNS
 
@@ -220,8 +218,8 @@ def build_frontend():
     if yarn_executable is None:
         raise RuntimeError("Yarn executable was not found.")
 
-    subprocess.run([yarn_executable, "install"], cwd=FRONTEND_ROOT)
-    subprocess.run([yarn_executable, "build"], cwd=FRONTEND_ROOT)
+    subprocess.run([yarn_executable, "install"], cwd=FRONTEND_ROOT, check=False)
+    subprocess.run([yarn_executable, "build"], cwd=FRONTEND_ROOT, check=False)
     if not os.path.exists(FRONTEND_DIST_ROOT):
         raise RuntimeError(
             "Frontend build failed. Did not find 'dist' folder."

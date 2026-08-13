@@ -302,7 +302,6 @@ class P4Workspace:
             "Options": options_str,
         }
 
-
     @classmethod
     def current(cls) -> P4Workspace:
         """Get the currently active Perforce workspace.
@@ -314,7 +313,6 @@ class P4Workspace:
         """
         cmd_out = P4Commands.run_p4("client", "-o")[0]
         return P4Workspace.from_dict(cmd_out)
-
 
     @staticmethod
     def opened_files() -> list[str]:
