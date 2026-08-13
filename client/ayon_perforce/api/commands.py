@@ -604,6 +604,17 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
             list[dict]: All records decoded from the marshal stream.
 
         """
+        def decode(value: bytes | str) -> bytes | str:
+            if not isinstance(value, bytes):
+                return value
+            try:
+                return value.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    return value.decode("cp1252")
+                except UnicodeDecodeError:
+                    return value.decode("latin-1")
+
         records: list[dict] = []
         stream = io.BytesIO(data)
         while True:
@@ -615,8 +626,8 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
                 continue
             decoded: dict = {}
             for k, v in record.items():
-                key = k.decode() if isinstance(k, bytes) else k
-                val = v.decode() if isinstance(v, bytes) else v
+                key = decode(k)
+                val = decode(v)
                 decoded[key] = val
             records.append(decoded)
         return records
