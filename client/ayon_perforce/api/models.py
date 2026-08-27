@@ -152,6 +152,11 @@ def _enable_alias_kwargs(cls: type[R]) -> type[R]:
         # In that case, we can't do any type checking,
         # so just return the class.
         return cls
+    except TypeError:
+        # This can happen in older versions of Python
+        # when the typing module is not fully supported. In that case,
+        # we can't do any type checking, so just return the class.
+        return cls
     datetime_fields = {
         name
         for name, annotation in type_hints.items()
