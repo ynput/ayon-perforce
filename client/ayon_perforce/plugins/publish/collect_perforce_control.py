@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import pyblish.api
 from ayon_core.lib import filter_profiles
-from ayon_perforce.backend.rest_stub import PerforceRestStub
+from ayon_perforce.api.commands import P4Commands
 
 if TYPE_CHECKING:
     import logging
@@ -88,7 +88,7 @@ class CollectPerforceControl(pyblish.api.InstancePlugin):
         username = conn_info["username"]
         password = conn_info["password"]
 
-        workspace_dir = PerforceRestStub.get_workspace_dir(
+        workspace_dir = P4Commands.get_workspace_dir(
             conn_info["workspace_name"])
 
         instance.data["perforce"] = {}

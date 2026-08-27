@@ -8,7 +8,7 @@ from ayon_core.addon import AddonsManager
 from ayon_core.lib.events import QueuedEventSystem
 from ayon_core.pipeline import registered_host
 
-from ayon_perforce.backend.rest_stub import PerforceRestStub
+from ayon_perforce.api.commands import P4Commands
 
 if TYPE_CHECKING:
     from ayon_core.host import HostBase
@@ -72,17 +72,8 @@ class ChangesViewerController:
             msg = "Missing Perforce connection information."
             raise RuntimeError(msg)
 
-        PerforceRestStub.login(**asdict(self._conn_info)
+        P4Commands.login(**asdict(self._conn_info)
         )
-
-    @staticmethod
-    def get_changes() -> list[dict]:
-        """Get changes from Perforce.
-
-        Returns:
-            list[dict]: Changes from Perforce
-        """
-        return PerforceRestStub.get_changes()
 
     def sync_to(self, change_id: int) -> None:
         """Sync to specific changelist number.
@@ -101,10 +92,10 @@ class ChangesViewerController:
             raise RuntimeError(msg)
 
         self.login()
-        PerforceRestStub.login(**asdict(self._conn_info))
-        workspace_dir = PerforceRestStub.get_workspace_dir(
+        P4Commands.login(**asdict(self._conn_info))
+        workspace_dir = P4Commands.get_workspace_dir(
             self._conn_info.workspace_name)
-        PerforceRestStub.sync_to_version(
+        P4Commands.sync_to_version(
             f"{workspace_dir}/...", change_id)
 
     def get_current_project_name(self) -> str:

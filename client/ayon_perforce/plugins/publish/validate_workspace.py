@@ -4,29 +4,37 @@ from __future__ import annotations
 import os
 from copy import deepcopy
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pyblish.api
-from qtpy import QtCore, QtWidgets
-
+from ayon_core.pipeline import (
+    PublishXmlValidationError,
+)
 from ayon_core.pipeline.publish import (
-    ValidateContentsOrder,
     PublishValidationError,
+    ValidateContentsOrder,
 )
 from ayon_core.tools.utils import ErrorMessageBox
-from ayon_core.pipeline import PublishXmlValidationError
-from ayon_core.pipeline.publish import ValidateContentsOrder
-from ayon_core.pipeline import PublishValidationError, PublishXmlValidationError
-
-from ayon_perforce.backend.rest_stub import PerforceRestStub
+from ayon_perforce.api.commands import P4Commands
+from qtpy import QtCore, QtWidgets
 
 
 class WorkspaceRepairAction(pyblish.api.Action):
+    """Repair workspace_dir if it was not collected."""
     label = "Repair"
     on = "failed"
     icon = "wrench"
 
-    def process(self, context, plugin):
+    def process(  # ruff: ignore[no-self-use]
+            self, context: pyblish.api.Context,
+            plugin: pyblish.api.Plugin) -> None:
+        """Process the action.
+
+        Args:
+            context (pyblish.api.Context): The context of the publish.
+            plugin (pyblish.api.Plugin): The plugin that failed.
+
+        """
         plugin.repair(context)
 
 
@@ -35,32 +43,37 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
 
     Used for committing to P4 directly from AYON.
     """
-    order = ValidateContentsOrder # this runs after the "normal" validators
+    order = ValidateContentsOrder  # this runs after the "normal" validators
     label = "Validate P4 workspace"
     targets: ClassVar[list[str]] = ["local"]
-    hosts = ["unreal"]
-    actions = [WorkspaceRepairAction]
+    hosts: ClassVar[list[str]] = ["unreal"]
+    actions: ClassVar[list[type[pyblish.api.Action]]] = [WorkspaceRepairAction]
 
-    def process(self, context):
+    def process(self, context: pyblish.api.Context) -> None:
         """Process the plugin.
 
+        Args:
+            context (pyblish.api.Context): The context of the publish.
+
         Raises:
-            PublishXmlValidationError: If workspace_dir is not collected.
+            PublishValidationError: If workspace_dir is not collected.
+            PublishXmlValidationError: If workspace_dir is not valid.
+
 
         """
         # TODO(antirotor): implement multiple roots
         p4_data = context.data.get("perforce")
         if not p4_data:
-            raise PublishValidationError(
-                "No Perforce connection info found in context.")
+            msg = "No Perforce connection info found in context."
+            raise PublishValidationError(msg)
 
         ws_name: str = p4_data.get("workspace_name")
         if not ws_name:
-            raise PublishValidationError(
-                "No workspace name found in Perforce connection info.")
+            msg = "No workspace name found in Perforce connection info."
+            raise PublishValidationError(msg)
 
         # validate workspace_dir
-        workspace_dir = PerforceRestStub.get_workspace_dir(
+        workspace_dir = P4Commands.get_workspace_dir(
             workspace_name=ws_name)
         if not workspace_dir or not os.path.exists(workspace_dir):
             project_name = context.data.get("projectName")
@@ -72,7 +85,7 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
         context.data["workspace_dir"] = workspace_dir
 
         # validate stream
-        stream = PerforceRestStub.get_stream(
+        stream = P4Commands.get_stream(
             workspace_name=ws_name)
         if not stream:
             msg = (
@@ -80,22 +93,31 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
                 "Please let your Perforce admin set up your workspace with "
                 "stream connected."
             )
-            raise PublishValidationError(self, msg)
+            raise PublishValidationError(msg)
         p4_data["stream"] = stream
 
         # validate uncomitted changes
-        uncommitted_changes = PerforceRestStub.get_uncommitted_changes()
+        uncommitted_changes = P4Commands.get_uncommitted_changes(ws_name)
         if uncommitted_changes:
             for change in uncommitted_changes:
-                self.log.error(f"Uncommitted change: {change}")
+                self.log.error("Uncommitted change: %s", change)
             p4_data["uncommitted_changes"] = uncommitted_changes
-            raise PublishValidationError(
-                "Workspace has uncommitted changes! Please commit or revert before publish."
+            msg = (
+                "Workspace has uncommitted changes! Please commit or revert "
+                "before publish."
             )
-        # TODO: check for stream updates
+
+            raise PublishValidationError(msg)
+        # TODO(tweak-wtf): check for stream updates
 
     @classmethod
-    def repair(cls, context):
+    def repair(cls, context: pyblish.api.Context) -> None:
+        """Repair the workspace_dir if it was not collected.
+
+        Args:
+            context (pyblish.api.Context): The context of the publish.
+
+        """
         p4_data = context.data["perforce"]
         UncommittedChangesRepairer(
             uncommitted_changes=p4_data["uncommitted_changes"],
@@ -105,11 +127,12 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
 
 
 class ChangesSelectionListModel(QtCore.QAbstractListModel):
+    """A list model for displaying uncommitted changes in a QListView."""
     def __init__(self, data, parent=None):
         super().__init__(parent)
         self._data = data
 
-    def rowCount(self, parent):
+    def rowCount(self, parent=QtCore.QModelIndex()) -> int:
         return len(self._data)
 
     def get_index(self, value):
@@ -118,19 +141,21 @@ class ChangesSelectionListModel(QtCore.QAbstractListModel):
                 return idx
         return None
 
-    def data(self, index, role):
+    def data(self, index, role) -> Any:
         if isinstance(index, QtCore.QModelIndex):
             index = index.row()
         if role == QtCore.Qt.DisplayRole:
             return f"[{self._data[index]['action']}]\t{self._data[index]['clientFile']}"
         if role == QtCore.Qt.UserRole:
             return self._data[index]
+        return None
 
     def removeRows(self, row, count, parent=QtCore.QModelIndex()):
         self.beginRemoveRows(parent, row, row + count - 1)
         del self._data[row:row + count]
         self.endRemoveRows()
         return True
+
 
 class UncommittedChangesRepairer(ErrorMessageBox):
     mb_submit_message: QtWidgets.QMessageBox = None
@@ -147,7 +172,9 @@ class UncommittedChangesRepairer(ErrorMessageBox):
 
     def _create_content(self, content_layout) -> None:
         label = QtWidgets.QLabel(
-            "You have pending files in your changelist.\nPlease revert, shelve or submit them before launching Unreal Engine again."
+            "You have pending files in your changelist.\n"
+            "Please revert, shelve or submit them before"
+            "launching Unreal Engine again."
         )
         content_layout.addWidget(label)
 
@@ -163,7 +190,8 @@ class UncommittedChangesRepairer(ErrorMessageBox):
         content_layout.addWidget(self.lv_uncommitted_changes)
 
         self.mb_submit_message = QtWidgets.QPlainTextEdit()
-        self.mb_submit_message.setPlaceholderText("Enter a message for the submit")
+        self.mb_submit_message.setPlaceholderText(
+            "Enter a message for the submit")
 
         content_layout.addWidget(self.mb_submit_message)
         btn_revert_selected = QtWidgets.QPushButton("Revert Selected")
@@ -173,37 +201,42 @@ class UncommittedChangesRepairer(ErrorMessageBox):
         content_layout.addWidget(btn_revert_selected)
         content_layout.addWidget(btn_submit)
 
-    def on_revert_selected(self):
+    def on_revert_selected(self) -> None:
+        """Revert the selected files in the list view."""
         selection = self.lv_uncommitted_changes.selectedIndexes()
         for index in selection:
-            # we need to buil;d an absolute local path
+            # we need to build an absolute local path
             # it seems p4 revert doesn't like depot or client syntax?!
-            client_file = deepcopy(index.data(QtCore.Qt.UserRole)["clientFile"])
+            client_file = deepcopy(
+                index.data(QtCore.Qt.UserRole)["clientFile"])
             client_file = client_file.replace("//", "")
-            client_file = client_file.replace(str(self.workspace_name), self.workspace_dir)
+            client_file = client_file.replace(
+                str(self.workspace_name), self.workspace_dir)
             client_file = Path(client_file)
             file_to_revert = self.workspace_dir / client_file
 
-            PerforceRestStub.revert(path=file_to_revert.as_posix())
+            P4Commands.revert(path=file_to_revert.as_posix())
             self.lv_uncommitted_changes.model().removeRow(index.row())
 
-        if self.lv_uncommitted_changes.model().rowCount(QtCore.QModelIndex()) == 0:
+        if self.lv_uncommitted_changes.model().rowCount(
+                QtCore.QModelIndex()) == 0:
             self.accept()
 
-
-    def on_submit(self):
-        if self.mb_submit_message.toPlainText() == "":
+    def on_submit(self) -> None:
+        """Submit the changelist with the provided message."""
+        if not self.mb_submit_message.toPlainText().strip():
             msg_box = QtWidgets.QMessageBox()
             msg_box.setIcon(QtWidgets.QMessageBox.Critical)
             msg_box.setWindowTitle("No commit message found")
             msg_box.setText("Please enter a message for the submit")
             msg_box.setStandardButtons(QtWidgets.QMessageBox.Ok)
             msg_box.setWindowModality(QtCore.Qt.ApplicationModal)
-            msg_box.setWindowFlags(msg_box.windowFlags() | QtCore.Qt.WindowStaysOnTopHint)
+            msg_box.setWindowFlags(
+                msg_box.windowFlags() | QtCore.Qt.WindowStaysOnTopHint)
             msg_box.exec_()
             return
 
         changelist_message = self.mb_submit_message.toPlainText()
         changelist_message = f"[PRE PUBLISH] {changelist_message}"
-        PerforceRestStub.submit_default_changelist(changelist_message)
+        P4Commands.submit_default_changelist(changelist_message)
         self.accept()

@@ -21,7 +21,7 @@ from ayon_core.addon import AddonsManager
 from ayon_core.tools.utils import get_qt_app
 from ayon_perforce import is_perforce_enabled
 from ayon_perforce.addon import LaunchData
-from ayon_perforce.backend.rest_stub import PerforceRestStub
+from ayon_perforce.api.commands import P4Commands
 from ayon_perforce.changes_viewer import ChangesWindows
 
 if TYPE_CHECKING:
@@ -98,9 +98,9 @@ class SyncUnrealProject(PreLaunchHook):
             #       - just the ws_name isn't enough
             raise RuntimeError(msg)
 
-        PerforceRestStub.login(**asdict(conn_info))
+        P4Commands.login(**asdict(conn_info))
 
-        workspace_dir = PerforceRestStub.get_workspace_dir(
+        workspace_dir = P4Commands.get_workspace_dir(
             workspace_name=conn_info.workspace_name)
         if not os.path.exists(workspace_dir):
             msg = f"Workspace '{workspace_dir}' does not exists."

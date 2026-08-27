@@ -11,10 +11,9 @@ from ayon_core.lib import StringTemplate, ayon_info
 from ayon_core.pipeline.template_data import get_template_data_with_names
 from ayon_core.settings import get_project_settings
 
-from .version import __version__
 from .lib import get_local_login
 from .tray.login import PerforceLoginTray
-
+from .version import __version__
 
 PERFORCE_ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -122,13 +121,13 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
             change_id: Change ID to sync to.
 
         """
-        from ayon_perforce.backend.rest_stub import PerforceRestStub
+        from ayon_perforce.api.commands import P4Commands
 
-        PerforceRestStub.login(**asdict(conn_info))
+        P4Commands.login(**asdict(conn_info))
 
-        workspace_dir = PerforceRestStub.get_workspace_dir(
+        workspace_dir = P4Commands.get_workspace_dir(
             conn_info.workspace_name)
-        PerforceRestStub.sync_to_version(
+        P4Commands.sync_to_version(
             f"{workspace_dir}/...", change_id)
 
     def tray_init(self) -> None:
@@ -155,10 +154,6 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
 
     def tray_start(self) -> None:
         """Called when the tray is starting."""
-        if self.enabled:
-            from ayon_perforce.backend.communication_server import WebServer
-            self.webserver = WebServer()
-            self.webserver.start()
 
     def tray_menu(self, tray_menu: dict[str, Any]) -> None:
         """Add Perforce menu to the tray.

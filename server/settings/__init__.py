@@ -1,13 +1,11 @@
-from .main import (
-    PerforceSettings,
-    DEFAULT_VALUES,
-)
 from .conversions import convert_settings_overrides
-
+from .main import (
+    DEFAULT_VALUES,
+    PerforceSettings,
+)
 
 __all__ = (
-    "PerforceSettings",
     "DEFAULT_VALUES",
-
+    "PerforceSettings",
     "convert_settings_overrides",
 )

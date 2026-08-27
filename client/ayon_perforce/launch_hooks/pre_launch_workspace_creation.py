@@ -1,6 +1,9 @@
+"""Handle Perforce workspace creation on any machine."""
+from __future__ import annotations
+
 from copy import deepcopy
-from typing import ClassVar, Optional
 from pathlib import Path
+from typing import ClassVar
 
 from ayon_applications import (
     LaunchTypes,
@@ -9,26 +12,29 @@ from ayon_applications import (
 from ayon_core.lib import StringTemplate, ayon_info
 from ayon_core.pipeline import Anatomy
 from ayon_core.pipeline.template_data import get_template_data_with_names
-
 from ayon_perforce.lib import P4Workspace, get_local_login
 
 
 class PerforceWorkspaceCreationHook(PreLaunchHook):
     """Handle workspace reset to commit on remote render jobs."""
 
-    app_groups: ClassVar = {"unreal"}
-    launch_types: ClassVar = {
+    app_groups: ClassVar[set[str]] = {"unreal"}
+    launch_types: ClassVar[set[str]] = {
         LaunchTypes.farm_publish,
         LaunchTypes.local,
     }
-    order = -5.2
+    order: ClassVar[float] = -5.2
 
     def execute(self) -> None:
-        """Handle Auto Workspace Creation on any machine."""
+        """Handle Auto Workspace Creation on any machine.
+
+        Raises:
+            RuntimeError: If workspace creation or switching fails.
+
+        """
         env = deepcopy(self.data["env"])
-        if publish_job := env.get("AYON_PUBLISH_JOB"):
-            if int(publish_job) > 0:
-                return
+        if (publish_job := env.get("AYON_PUBLISH_JOB")) and int(publish_job) > 0:  # noqa: E501
+            return
 
         # project data
         proj = self.data["project_entity"]
@@ -52,6 +58,9 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
 
         # get p4username from registry
         owner = get_local_login()[0]
+        if not owner:
+            msg = "Cannot determine p4 user."
+            raise RuntimeError(msg)
 
         # workspace template
         ws_tmpl = proj_setts["perforce"]["workspace"]["template"]
@@ -104,9 +113,3 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
         except Exception as err:
             errmsg = f"Failed to checkout workspace. {err}"
             raise RuntimeError(errmsg) from err
-
-        # api: assuming username is used in template we can make username optional
-
-        # api: call_command from ayon
-        # create if necessary
-        # set $P4CLIENT here?
