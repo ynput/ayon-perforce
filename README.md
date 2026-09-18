@@ -1,75 +1,86 @@
-Version control addon
----------------------
+# AYON Perforce Addon
 
-This addon tries to implement generic API for various version control system.
+This addon integrates Perforce with AYON for project-level version control workflows, especially around Unreal projects and Deadline rendering.
 
-Currently contains WIP implementation of Perforce, but there might be more in the future which should follow
-same API methods.
+It focuses on two major patterns:
 
-Implementation tries to use only single dependency `p4python` which is binary dependent on version of python used.
-Which might be different in different DCCs, different versions of Unreal etc.
+- tracking selected published content in Perforce as a source-controlled representation
+- syncing artists and render jobs to a specific changelist before opening or rendering an Unreal project
 
+## What it provides
 
-To mitigate need of having binary compatible `p4python` libraries addon currently implements REST api to run p4 commands 
-only on separate webserver started by AYON Tray which contains `p4python` library installed via dependency package and 
-REST stub class which might be used in each DCC that has `requests` library.
+The addon adds Perforce-aware settings and runtime utilities for:
 
-### Configuration of connection to Perforce server
+- connecting to a Perforce server and workspace configured in AYON settings
+- resolving the local user login and workspace context
+- creating or switching workspaces and streams
+- validating the local workspace before publishing or launching
+- collecting Perforce changelist metadata during publishing
+- syncing Unreal projects to a chosen changelist before launch
+- passing changelist information into Deadline submissions and farm hooks
 
-Addons offers configuration of credentials to P4 server with username and password on multiple levels via
-Studio(single credentials), Project (credentials different per project)  or Site settings(credentials different per artist.)
+## Current implementation
 
-### Perforce workspace
+The current client code uses the Perforce CLI (`p4`) directly through subprocess calls rather than a `p4python` dependency. This keeps the addon aligned with the standard Perforce installation already present on artist machines and render workers.
 
-It is expected that P4 workspaces would be setup and existing on artists machines. Each artist then only 
-provides path to their locally accessible P4 workspace folder in Site Settings.
+## Settings
 
-### Main functionalities for Perforce
+Perforce settings are defined in the server-side addon configuration and include:
 
-This addons contains two main  functionality for slightly different use cases:
-- create separate version controlled streams from AYON of published products in Perforce
-- help with Deadline rendering of Unreal projects with Perforce
+- `enabled`: enable or disable the Perforce addon per project
+- `host_name`: Perforce server host name
+- `port`: Perforce server port
+- `workspace`: workspace name and depot templates
+- `stream`: optional stream-based workspace configuration
+- `publish`: profiles that decide when published products should be tracked in Perforce
 
-It is expected that majority work for Perforce with Unreal project files are done with official Perforce
-tools like `P4V` or command line utility. Neither of those are distributed by addon and it is required
-for IT department to install/configure them.
+The default workspace template is generated from AYON project context, and the addon resolves a locally logged-in Perforce user for the current workstation.
 
+## Prerequisites
 
-#### Commits to Perforce
+Before using the addon, make sure:
 
-This approach allows to copy version control not only in AYON, where each publish results in new version
-of published product, but committing this version directly to Perforce. 
+- the `p4` binary is installed and available on `PATH`
+- the Perforce server is reachable from the workstation or render node
+- the user is authenticated to the server
+- the required workspace or stream exists in Perforce
+- the AYON project has the matching template and settings configured
 
-That way versions of particular product are separately kept in Perforce, from which ordinary Perforce tools
-could be used (P4V) to pull latest version of published product.
+## Core workflows
 
-Profiles could be used to limit which published products should be committed to Perforce.
+### 1. Publish-time Perforce tracking
 
-As Perforce controlled product doesn't contain version name directly in its name nor path, additional
-AYON template must be configured in Project's Anatomy > Templates.
+The addon's publish plugins can collect Perforce control metadata for selected products.
 
-New template must follow `Hero template` - https://ayon.ynput.io/docs/artist_concepts/#hero-version approach,
-`Hero` template could beu used directly too (if it is matching required folder structure in Perforce)
+This is controlled through the project settings under `publish -> CollectPerforceControl` and can be profiled by:
 
-#### Support for Unreal and Deadline
+- host name
+- product base types
+- task types
+- task names
 
-The other workflow is to help rendering Unreal from Perforce on Deadline rendering farm.
+If enabled, the addon can collect and attach information describing a published representation that should be represented as a Perforce changelist.
 
-In this use case there is an expection that multiple artists are working on Unreal project with standard utilization of
-P4 or Unreal P4 official plugin to checkout/commit any modifications to Unreal project to Perforce.
+### 2. Unreal launch sync
 
-Addons offers additional possibility to mark current stage of Unreal project, eg. latest commit/changelist, as 'published' and
-store its metadata in AYON for possible future workflows and enhancements.
+Before launching Unreal, the addon can offer an artist a way to sync the project to a previously published changelist instead of leaving the project at an arbitrary local state.
 
-New additional mini tool is provided for artists before they open Unreal via AYON launcher which allows them to 
-`P4 sync` (not `checkout` - that would lock the files) to any previously published version before Unreal is actually opened.
+This is handled by launch hooks and is intended for cases where the artist needs to open the project at a known, checked-in state before working on it.
 
-This marker, or tag, points to commit/changelist and could be pushed to Deadline integration where Deadline
-syncs to this particular commit before rendering. 
+### 3. Deadline / farm integration
 
-This requires to have AYON integration to Deadline installed. Please check https://ayon.ynput.io/docs/addon_deadline_admin for more details.
+The addon also supports the Deadline workflow by collecting changelist metadata and passing it through the launch environment.
 
-Usage of Perforce in Deadline submissions could be controlled by toggling on/off of automatically created instance of 
-`changelist_metadata` product type in AYON Publisher.
+Relevant metadata is exposed in environment variables such as `AYON_P4_CHANGELIST`, and the farm pre-launch hook reads that data to ensure the job syncs to the correct changelist before rendering.
+
+## Changelist viewer
+
+A small changelist viewer exists in the client package to show known Perforce changelist references and allow a user to sync to a selected changelist for a project.
+
+This is intended as a convenience for validation, re-rendering, and recovery workflows after a published state has been stored in AYON.
+
+## Notes
+
+This addon is intentionally focused on Perforce and Unreal/Deadline-centric workflows. It is not a general-purpose replacement for the full Perforce client experience; it is designed to integrate Perforce with AYON's project pipeline and render workflows.
 
 
