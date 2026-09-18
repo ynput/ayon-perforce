@@ -1,0 +1,7 @@
+[project]
+name="perforce"
+description="AYON Perforce addon."
+
+
+[ayon.runtimeDependencies]
+typing-extensions = "^4"

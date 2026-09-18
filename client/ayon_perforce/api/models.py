@@ -766,6 +766,15 @@ class FStat:
 
     have_rev: int | None = field(metadata={"alias": "haveRev"}, default=None)
     """Revision last synced to workspace, if on workspace."""
+    rev: int | None = field(metadata={"alias": "rev"}, default=None)
+    """Revision number."""
+    action: Action | None = field(metadata={"alias": "action"}, default=None)
+    """Action performed on the file."""
+
+    change: int | None = field(metadata={"alias": "change"}, default=None)
+    type: str | None = field(metadata={"alias": "type"}, default=None)
+    user: str | None = field(metadata={"alias": "user"}, default=None)
+    client: str | None = field(metadata={"alias": "client"}, default=None)
 
     is_mapped: bool = field(metadata={"alias": "isMapped"}, default=False)
     """Is the file is mapped to client workspace."""
