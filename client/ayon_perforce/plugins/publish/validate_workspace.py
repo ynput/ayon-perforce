@@ -110,6 +110,8 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
             raise PublishValidationError(msg)
         # TODO(tweak-wtf): check for stream updates
 
+    _repair_dialog: ClassVar[UncommittedChangesRepairer | None] = None
+
     @classmethod
     def repair(cls, context: pyblish.api.Context) -> None:
         """Repair the workspace_dir if it was not collected.
@@ -118,12 +120,22 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
             context (pyblish.api.Context): The context of the publish.
 
         """
+        import unreal
+
         p4_data = context.data["perforce"]
-        UncommittedChangesRepairer(
+        dialog = UncommittedChangesRepairer(
             uncommitted_changes=p4_data["uncommitted_changes"],
-            workspace_dir=p4_data["workspace_dir"],
+            workspace_dir=context.data["workspace_dir"],
             workspace_name=p4_data["workspace_name"]
-        ).exec_()
+        )
+        # Non-blocking show parented to Slate. A nested modal exec_()
+        # blocks Unreal's game thread which pumps the Qt event loop.
+        # Keep a reference so the dialog is not garbage collected.
+        cls._repair_dialog = dialog
+        dialog.show()
+        unreal.parent_external_window_to_slate(dialog.winId())
+        dialog.raise_()
+        dialog.activateWindow()
 
 
 class ChangesSelectionListModel(QtCore.QAbstractListModel):
@@ -161,13 +173,20 @@ class UncommittedChangesRepairer(ErrorMessageBox):
     mb_submit_message: QtWidgets.QMessageBox = None
     lv_uncommitted_changes: QtWidgets.QListView = None
 
-    def __init__(self, uncommitted_changes: list, workspace_dir: str, workspace_name: str):
-        self.title = "Pending Files in Changelist"
-        self.parent = QtWidgets.QApplication.activeWindow()
+    def __init__(
+            self,
+            uncommitted_changes: list,
+            workspace_dir: str,
+            workspace_name: str,
+            parent: QtWidgets.QWidget | None = None):
+        # Set before super().__init__() because base __init__ calls
+        # _create_content() which needs them.
         self.uncommitted_changes = uncommitted_changes
         self.workspace_dir = workspace_dir
         self.workspace_name = workspace_name
-        super().__init__(self.title, self.parent)
+        if parent is None:
+            parent = QtWidgets.QApplication.activeWindow()
+        super().__init__("Pending Files in Changelist", parent)
         self.resize(800, 600)
 
     def _create_content(self, content_layout) -> None:
@@ -203,8 +222,15 @@ class UncommittedChangesRepairer(ErrorMessageBox):
 
     def on_revert_selected(self) -> None:
         """Revert the selected files in the list view."""
-        selection = self.lv_uncommitted_changes.selectedIndexes()
-        for index in selection:
+        model = self.lv_uncommitted_changes.model()
+        # Remove from the bottom so remaining rows keep valid positions.
+        rows = sorted(
+            {index.row()
+             for index in self.lv_uncommitted_changes.selectedIndexes()},
+            reverse=True,
+        )
+        for row in rows:
+            index = model.index(row, 0)
             # we need to build an absolute local path
             # it seems p4 revert doesn't like depot or client syntax?!
             client_file = deepcopy(
@@ -216,10 +242,9 @@ class UncommittedChangesRepairer(ErrorMessageBox):
             file_to_revert = self.workspace_dir / client_file
 
             P4Commands.revert(path=file_to_revert.as_posix())
-            self.lv_uncommitted_changes.model().removeRow(index.row())
+            model.removeRow(row)
 
-        if self.lv_uncommitted_changes.model().rowCount(
-                QtCore.QModelIndex()) == 0:
+        if model.rowCount(QtCore.QModelIndex()) == 0:
             self.accept()
 
     def on_submit(self) -> None:
