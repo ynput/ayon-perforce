@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from ayon_core.lib import AYONSecureRegistry, Logger
 
 from ayon_perforce.api.commands import P4Commands
+from ayon_perforce.api.exceptions import P4Error
 
 if TYPE_CHECKING:
     from ayon_perforce.api.models import PerforceDict
@@ -135,6 +136,22 @@ class P4Workspace:
         if self.stream and not self.stream.startswith("//"):
             self.stream = f"//{self.depot}/{self.stream}"
 
+    def _use_existing_stream(self) -> None:
+        """Use stream of the existing workspace with the same name.
+
+        Keeps an existing stream workspace on its stream instead of
+        converting it to a classic workspace.
+        """
+        stream = P4Commands.get_stream(self.name)
+        if not stream:
+            return
+        self.stream = stream
+        # stream path is `//<depot>/<stream>`
+        self.depot = stream.split("/")[2]
+        log.debug(
+            "Using stream `%s` of existing workspace `%s`.",
+            self.stream, self.name)
+
     def switch(self, *, force: bool = False) -> None:
         """Update the workspace from generated spec and activates it.
 
@@ -155,9 +172,11 @@ class P4Workspace:
                 "the Perforce server. Creating one."
             )
             log.debug(msg)
+        elif not self.stream:
+            self._use_existing_stream()
 
-        # check if the stream is available
-        if self.stream not in P4Commands.get_available_streams(
+        # check if the stream is available, classic workspace has none
+        if self.stream and self.stream not in P4Commands.get_available_streams(
                 depot=self.depot):
             msg = (
                 f"Stream `{self.stream}` does not exist on "
@@ -183,7 +202,7 @@ class P4Workspace:
         if force:
             try:
                 P4Commands.run_p4("revert", "//...")
-            except RuntimeError:
+            except P4Error:
                 log.warning("Failed to revert files. Ignoring.")
         else:
             curr_ws = P4Workspace.current()
@@ -292,15 +311,21 @@ class P4Workspace:
 
         """
         options_str = " ".join(self.options or [])
-        return {
+        spec = {
             "Client": self.name or "",
             "Host": self.host or "",
             "Owner": self.owner,
             "Description": "Created by Ayon Launcher Hook",
             "Root": self.root,
-            "Stream": str(stream or self.stream or ""),
             "Options": options_str,
         }
+        stream = stream or self.stream
+        if stream:
+            spec["Stream"] = str(stream)
+        else:
+            # classic workspace, map the whole depot to the workspace root
+            spec["View0"] = f"//{self.depot}/... //{self.name}/..."
+        return spec
 
     @classmethod
     def current(cls) -> P4Workspace:

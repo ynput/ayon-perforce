@@ -33,7 +33,7 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
 
         """
         env = deepcopy(self.data["env"])
-        if (publish_job := env.get("AYON_PUBLISH_JOB")) and int(publish_job) > 0:  # noqa: E501
+        if (publish_job := env.get("AYON_PUBLISH_JOB")) and int(publish_job) > 0:  # ruff: ignore[line-too-long]
             return
 
         # project data
@@ -51,6 +51,7 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
             task_name=task["name"],
         )
         tmpl_data.update({
+            "workstation": workstation_info,
             "workstation_info": workstation_info,
             "root": anatomy.roots,
         })
@@ -66,7 +67,7 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
         ws_tmpl = proj_setts["perforce"]["workspace"]["template"]
         ws_tmpl = StringTemplate(ws_tmpl)
         ws_name = ws_tmpl.format_strict(tmpl_data)
-        self.log.info(f"{ws_name = }")
+        self.log.info("%s", ws_name)
 
         # workspace root template
         # "file": "{project[code]}.{ext}",
@@ -76,26 +77,30 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
         ws_root_dir /= ws_root_file  # ue always creates a subdir for a project
         ws_root_tmpl = StringTemplate(ws_root_dir.as_posix())
         ws_root = Path(ws_root_tmpl.format_strict(tmpl_data)).as_posix()
-        self.log.info(f"{ws_root = }")
+        self.log.info("%s", ws_root)
 
-        # stream template
-        strm_tmpl: StringTemplate = None
-        for profile in proj_setts["perforce"]["stream"]["profiles"]:
-            if task["taskType"] in profile["task_types"]:
-                strm_tmpl = StringTemplate(profile["template"])
-        if not strm_tmpl:
-            errmsg = (
-                f"Task type {task['taskType']} not found in stream profiles."
-            )
-            raise RuntimeError(errmsg)
-        strm_name = strm_tmpl.format_strict(tmpl_data)
-        self.log.info(f"{strm_name = }")
+        # stream template, without streams a classic workspace is used
+        strm_name: str | None = None
+        stream_settings = proj_setts["perforce"]["stream"]
+        if stream_settings["enabled"]:
+            strm_tmpl: StringTemplate | None = None
+            for profile in stream_settings["profiles"]:
+                if task["taskType"] in profile["task_types"]:
+                    strm_tmpl = StringTemplate(profile["template"])
+            if not strm_tmpl:
+                errmsg = (
+                    f"Task type {task['taskType']} not found "
+                    "in stream profiles."
+                )
+                raise RuntimeError(errmsg)
+            strm_name = strm_tmpl.format_strict(tmpl_data)
+            self.log.info("%s", strm_name)
 
         # depot template
         depot_tmpl = proj_setts["perforce"]["workspace"]["depot"]
         depot_tmpl = StringTemplate(depot_tmpl)
         depot_name = depot_tmpl.format_strict(tmpl_data)
-        self.log.info(f"{depot_name = }")
+        self.log.info("%s", depot_name)
 
         is_remote_run = self.launch_context.launch_type != LaunchTypes.local
         try:
@@ -108,7 +113,7 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
                 host=workstation_info["hostname"],
                 options=["rmdir"]
             )
-            self.log.info(f"{req_ws = }")
+            self.log.info("%s", req_ws)
             req_ws.switch(force=is_remote_run)
         except Exception as err:
             errmsg = f"Failed to checkout workspace. {err}"
