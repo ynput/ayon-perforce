@@ -56,9 +56,9 @@ class ChangesModel(QtGui.QStandardItemModel):
             date_time = change.date
             date_string = date_time.strftime("%Y%m%dT%H%M%SZ")
 
-            number_item = QtGui.QStandardItem(change.change)
+            number_item = QtGui.QStandardItem(str(change.change))
             # Store number for sorting
-            number_item.setData(int(change.change), CHANGE_ROLE)
+            number_item.setData(change.change, CHANGE_ROLE)
             desc_item = QtGui.QStandardItem(change.description)
             author_item = QtGui.QStandardItem(change.user)
             date_item = QtGui.QStandardItem(date_string)
@@ -91,7 +91,7 @@ class ChangesModel(QtGui.QStandardItemModel):
 class CustomSortProxyModel(QtCore.QSortFilterProxyModel):
     """Custom sort proxy model."""
 
-    def lessThan(  # noqa: N802
+    def lessThan(  # ruff: ignore[invalid-function-name]
             self,
             source_left: QtCore.QModelIndex,
             source_right: QtCore.QModelIndex) -> bool:

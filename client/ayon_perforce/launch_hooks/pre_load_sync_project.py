@@ -18,11 +18,9 @@ from ayon_applications import (
     PreLaunchHook,
 )
 from ayon_core.addon import AddonsManager
-from ayon_core.tools.utils import get_qt_app
 from ayon_perforce import is_perforce_enabled
 from ayon_perforce.addon import LaunchData
 from ayon_perforce.api.commands import P4Commands
-from ayon_perforce.changes_viewer import ChangesWindows
 
 if TYPE_CHECKING:
     from ayon_perforce.addon import ConnectionInfo, PerforceAddon
@@ -46,6 +44,10 @@ class SyncUnrealProject(PreLaunchHook):
 
     def execute(self) -> None:
         """Show dialog to sync Unreal project."""
+        # these import Qt so not available in headless modes
+        from ayon_core.tools.utils import get_qt_app
+        from ayon_perforce.changes_viewer import ChangesWindows
+
         perforce_addon = self._get_enabled_perforce_addon()
         if not perforce_addon:
             self.log.info("Perforce Addon is not enabled, skipping")

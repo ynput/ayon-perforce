@@ -102,7 +102,7 @@ class CollectPerforceLogin(pyblish.api.ContextPlugin):
             self.log.error(msg)
             raise RuntimeError(msg)
         conn_info = perforce_addon.get_connection_info(**conn_info_payload)
-        self.log.debug(f"Retrieved connection info: {conn_info}")
+        self.log.debug("Retrieved connection info: %s", conn_info)
         missing_creds = False
         if not all([
             conn_info.username,
