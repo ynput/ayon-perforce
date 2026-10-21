@@ -20,6 +20,7 @@ from ayon_perforce.api.exceptions import (
     ChangeUnknownError,
     ClientNotFoundError,
     CommandExecutionError,
+    P4Error,
     UserNotFoundError,
 )
 from ayon_perforce.api.models import (
@@ -111,11 +112,14 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
             *args: Arguments forwarded to ``p4``.
             stdin_data: Optional dict written to the process stdin.
             max_severity: Maximum severity of error messages to ignore.
-                Any error with a severity less than or equal to this value
-                will be ignored.
+                Errors with a severity less than or equal to this value
+                don't fail the command and are returned with the other
+                records. Errors above it are dropped from the result and
+                raised when the command fails.
 
         Returns:
-            list[dict]: Non-error records from the marshal output.
+            list[dict]: Records from the marshal output, including errors
+                within ``max_severity``.
 
         Raises:
             CommandExecutionError: If the ``p4`` command fails.
@@ -145,28 +149,32 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
             raise ValueError(msg) from error
 
         all_records = cls._parse_marshal(proc.stdout)
-        error_records = [
-            r for r in all_records
-            if r.get("code") == MarshalCode.ERROR.value and int(r["severity"]) <= max_severity.value  # ruff: ignore[line-too-long]
-        ]
-        normal_records = [
-            r for r in all_records
-            if r.get("code") != MarshalCode.ERROR.value
-        ]
+        # Errors within `max_severity` are returned (in original order)
+        # so callers can process them, e.g. "file(s) up-to-date." warning.
+        errors: list[dict] = []
+        result: list[dict] = []
+        has_records = False
+        for record in all_records:
+            if record.get("code") != MarshalCode.ERROR.value:
+                has_records = True
+            elif int(record.get("severity", 0)) > max_severity.value:
+                errors.append(record)
+                continue
+            result.append(record)
 
-        if proc.returncode != 0 and not normal_records:
-            if error_records:
+        if proc.returncode != 0 and not has_records and (errors or not result):
+            if errors:
                 msg = "; ".join(
-                    r.get("data", "unknown p4 error") for r in error_records
+                    r.get("data", "unknown p4 error").strip() for r in errors
                 )
             else:
                 msg = proc.stderr.decode(errors="replace").strip()
             raise CommandExecutionError(
                 msg or f"p4 command failed (code: {proc.returncode}): {cmd}",
                 command=cmd,
-                data=error_records[0] if error_records else None,
+                data=errors[0] if errors else None,
             )
-        return normal_records
+        return result
 
     def get_user(self, user: str) -> User:
         """Get user from perforce.
@@ -232,7 +240,8 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         try:
             data = self.run_p4("change", "-o", str(change))[0]
         except CommandExecutionError as error:
-            if error.data["data"].strip() == f"Change {change} unknown.":
+            message = error.data.get("data", "").strip()
+            if message == f"Change {change} unknown.":
                 raise ChangeUnknownError(change) from error
             raise
         return Change(**data)  # type: ignore[arg-type]
@@ -253,10 +262,45 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         data = self.run_p4("change", "-o")[0]
         data["Description"] = description
         _ = self._extract_indexed_values(data, "Files")
-        self.run_p4("change", "-i", stdin_data=data)
+        output = self.run_p4("change", "-i", stdin_data=data)
 
-        data = self.run_p4("changes", "--me", "-m", "1", "-l")[0]
-        return ChangeInfo(**data)  # type: ignore[arg-type]
+        change = self._parse_created_change(output)
+        if change is None:
+            log.warning(
+                "Could not parse created changelist number from %s, "
+                "using the latest changelist of the user.", output)
+            data = self.run_p4("changes", "--me", "-m", "1", "-l")[0]
+            return ChangeInfo(**data)  # type: ignore[arg-type]
+
+        spec = self.get_change(change)
+        return ChangeInfo(  # type: ignore[call-arg]
+            change=change,
+            client=spec.client,
+            date=spec.date,
+            description=spec.description,
+            status=spec.status,
+            type=spec.type,
+            user=spec.user,
+            stream=spec.stream,
+        )
+
+    @staticmethod
+    def _parse_created_change(records: list[dict]) -> int | None:
+        """Get changelist number from ``p4 change -i`` output.
+
+        Args:
+            records: Records returned by ``p4 change -i``.
+
+        Returns:
+            int | None: Changelist number or ``None`` if not found.
+
+        """
+        regex = re.compile(r"^Change (\d+) created")
+        for record in records:
+            match = regex.match(str(record.get("data", "")).strip())
+            if match:
+                return int(match.group(1))
+        return None
 
     def changes(
         self,
@@ -637,7 +681,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         """Return the stream configured in the active client workspace."""
         try:
             records = cls.run_p4("client", "-o")
-        except RuntimeError:
+        except P4Error:
             return None
         return records[0].get("Stream") if records else None
 
@@ -707,7 +751,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         try:
             records = cls.run_p4("where", str(path))
             return bool(records)
-        except RuntimeError:
+        except P4Error:
             return False
 
     @classmethod
@@ -782,7 +826,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         """
         try:
             records = cls.run_p4("fstat", str(path))
-        except RuntimeError:
+        except P4Error:
             return False
         if not records:
             return False
@@ -840,7 +884,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         )
         try:
             default_open = list(p4.opened())
-        except RuntimeError:
+        except P4Error:
             default_open = []
         if default_open:
             records.extend(default_open)
@@ -916,7 +960,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         try:
             records = cls.run_p4("fstat", "-m", "1", str(path))
             return bool(records)
-        except RuntimeError:
+        except P4Error:
             return False
 
     @classmethod
@@ -932,7 +976,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         """
         try:
             records = cls.run_p4("client", "-o", workspace_name)
-        except RuntimeError:
+        except P4Error:
             return ""
         return records[0].get("Stream", "") if records else ""
 
@@ -949,7 +993,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         """
         try:
             records = cls.run_p4("client", "-o", workspace_name)
-        except RuntimeError:
+        except P4Error:
             return ""
         return records[0].get("Root", "") if records else ""
 
@@ -963,7 +1007,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         """
         try:
             records = cls.run_p4("depots")
-        except RuntimeError:
+        except P4Error:
             return []
         return [r.get("name", "") for r in records if "name" in r]
 
@@ -980,7 +1024,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         """
         try:
             records = cls.run_p4("clients", "-u", username)
-        except RuntimeError:
+        except P4Error:
             return []
         return [r.get("client", "") for r in records if "client" in r]
 
@@ -1002,7 +1046,7 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
                 depot = f"{depot}/..."
         try:
             records = cls.run_p4("streams", depot or "")
-        except RuntimeError:
+        except P4Error:
             return []
         return [
             r.get("Stream", "") for r in records if "Stream" in r
