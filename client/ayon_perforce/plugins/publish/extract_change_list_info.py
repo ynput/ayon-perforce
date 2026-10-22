@@ -39,6 +39,9 @@ class ExtractChangeListInfo(publish.Extractor):
             {
                 "AYON_P4_STREAM": p4_data["stream"],
                 "AYON_P4_CHANGELIST": p4_data["changelist"],
+                # extracted environment contains workspace of the render
+                # node, it can't be shared between hosts
+                "AYON_ENV_CACHE_PER_HOST": "1",
                 # fallback to 5.7 to retain backwards compatibility with the
                 # previous behavior of the plugin.
                 "AYON_UNREAL_VERSION": ctx.get(

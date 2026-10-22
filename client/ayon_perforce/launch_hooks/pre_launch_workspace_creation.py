@@ -12,6 +12,7 @@ from ayon_applications import (
 from ayon_core.lib import StringTemplate, ayon_info
 from ayon_core.pipeline import Anatomy
 from ayon_core.pipeline.template_data import get_template_data_with_names
+from ayon_perforce.addon import is_perforce_enabled
 from ayon_perforce.lib import P4Workspace, get_local_login
 
 
@@ -39,6 +40,9 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
         # project data
         proj = self.data["project_entity"]
         proj_setts = self.data["project_settings"]
+        if not is_perforce_enabled(proj_setts):
+            self.log.info("Perforce is not enabled for project, skipping")
+            return
         proj_name = self.data["project_entity"]["name"]
         anatomy = Anatomy(project_name=proj_name)
         task = self.data["task_entity"]
@@ -79,22 +83,8 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
         ws_root = Path(ws_root_tmpl.format_strict(tmpl_data)).as_posix()
         self.log.info("%s", ws_root)
 
-        # stream template, without streams a classic workspace is used
-        strm_name: str | None = None
-        stream_settings = proj_setts["perforce"]["stream"]
-        if stream_settings["enabled"]:
-            strm_tmpl: StringTemplate | None = None
-            for profile in stream_settings["profiles"]:
-                if task["taskType"] in profile["task_types"]:
-                    strm_tmpl = StringTemplate(profile["template"])
-            if not strm_tmpl:
-                errmsg = (
-                    f"Task type {task['taskType']} not found "
-                    "in stream profiles."
-                )
-                raise RuntimeError(errmsg)
-            strm_name = strm_tmpl.format_strict(tmpl_data)
-            self.log.info("%s", strm_name)
+        strm_name = self._get_stream_name(
+            proj_setts["perforce"]["stream"], task["taskType"], tmpl_data)
 
         # depot template
         depot_tmpl = proj_setts["perforce"]["workspace"]["depot"]
@@ -114,7 +104,37 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
                 options=["rmdir"]
             )
             self.log.info("%s", req_ws)
-            req_ws.switch(force=is_remote_run)
+            # on farm `PerforcePreLaunchFarmHook` syncs to the job changelist
+            req_ws.switch(force=is_remote_run, sync=not is_remote_run)
         except Exception as err:
             errmsg = f"Failed to checkout workspace. {err}"
             raise RuntimeError(errmsg) from err
+
+    def _get_stream_name(
+        self,
+        stream_settings: dict,
+        task_type: str,
+        tmpl_data: dict,
+    ) -> str | None:
+        """Get stream name from stream profiles.
+
+        Returns:
+            Stream name or ``None`` if streams are disabled, a classic
+            workspace is used then.
+
+        Raises:
+            RuntimeError: If no profile matches the task type.
+
+        """
+        if not stream_settings["enabled"]:
+            return None
+        strm_tmpl: StringTemplate | None = None
+        for profile in stream_settings["profiles"]:
+            if task_type in profile["task_types"]:
+                strm_tmpl = StringTemplate(profile["template"])
+        if not strm_tmpl:
+            errmsg = f"Task type {task_type} not found in stream profiles."
+            raise RuntimeError(errmsg)
+        strm_name = strm_tmpl.format_strict(tmpl_data)
+        self.log.info("%s", strm_name)
+        return strm_name

@@ -152,29 +152,13 @@ class P4Workspace:
             "Using stream `%s` of existing workspace `%s`.",
             self.stream, self.name)
 
-    def switch(self, *, force: bool = False) -> None:
-        """Update the workspace from generated spec and activates it.
-
-        Args:
-            force (bool, optional): If True, forces the switch even
-                if there are opened files. Defaults to False.
+    def _validate_stream_and_depot(self) -> None:
+        """Check stream and depot of the workspace exist on the server.
 
         Raises:
-            RuntimeError: If the depot or stream are not present,
-            or if there are opened files and force is False.
+            RuntimeError: If the depot or stream are not present.
 
         """
-        # check if workspace name is already on the server
-        if self.name not in P4Commands.get_available_workspaces(
-                username=self.owner):
-            msg = (
-                f"Workspace `{self.name}` does not exist on "
-                "the Perforce server. Creating one."
-            )
-            log.debug(msg)
-        elif not self.stream:
-            self._use_existing_stream()
-
         # check if the stream is available, classic workspace has none
         if self.stream and self.stream not in P4Commands.get_available_streams(
                 depot=self.depot):
@@ -196,6 +180,33 @@ class P4Workspace:
             )
             log.debug("Available depots: %s", depots)
             raise RuntimeError(msg)
+
+    def switch(self, *, force: bool = False, sync: bool = True) -> None:
+        """Update the workspace from generated spec and activates it.
+
+        Args:
+            force (bool, optional): If True, forces the switch even
+                if there are opened files. Defaults to False.
+            sync (bool, optional): Sync the workspace to the latest
+                revision after switching. Defaults to True.
+
+        Raises:
+            RuntimeError: If the depot or stream are not present,
+            or if there are opened files and force is False.
+
+        """
+        # check if workspace name is already on the server
+        if self.name not in P4Commands.get_available_workspaces(
+                username=self.owner):
+            msg = (
+                f"Workspace `{self.name}` does not exist on "
+                "the Perforce server. Creating one."
+            )
+            log.debug(msg)
+        elif not self.stream:
+            self._use_existing_stream()
+
+        self._validate_stream_and_depot()
 
         # Check if workspace has opened files and
         # can be switched to a different stream.
@@ -235,7 +246,8 @@ class P4Workspace:
         self.stream = ws_specs.stream
 
         # get latest files for workspace stream
-        self.get_latest(force=force)
+        if sync:
+            self.get_latest(force=force)
 
     def get_latest(self, *, force: bool = False) -> None:
         """Get the latest changes for this workspace.

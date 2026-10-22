@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from ayon_applications import (
     LaunchTypes,
@@ -12,9 +12,13 @@ from ayon_applications import (
 from ayon_core.lib import StringTemplate
 from ayon_core.lib.ayon_info import get_workstation_info
 from ayon_core.pipeline.template_data import get_template_data
+from ayon_perforce.addon import is_perforce_enabled
 from ayon_perforce.api.commands import P4Commands
 from ayon_perforce.api.exceptions import ClientNotFoundError
 from ayon_perforce.api.models import MessageSeverity
+
+if TYPE_CHECKING:
+    from ayon_perforce.api.models import Client
 
 
 class P4WorkspaceError(Exception):
@@ -38,14 +42,15 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
         Raises:
             P4WorkspaceError: If the workspace doesn't exist or setting
                 the workspace fails.
-            P4StreamError: If the workspace is on a different stream than
-                the one sent by the submitter (``AYON_P4_STREAM``).
             ValueError: When missing data for template resolution
                 or the workspace template could not be solved.
 
         """
         env = deepcopy(self.data["env"])
         if int(env.get("AYON_PUBLISH_JOB", 0)) > 0:
+            return
+        if not is_perforce_enabled(self.data["project_settings"]):
+            self.log.info("Perforce is not enabled for project, skipping")
             return
 
         if not self.host_name:
@@ -93,20 +98,7 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
             raise P4WorkspaceError(msg) from e
         self.log.debug("Workspace: %s", client)
 
-        if env_stream and client.stream and env_stream != client.stream:
-            # assumes workspaces are checked out
-            # to the correct stream per default
-            msg = (
-                f"Workspace `{ws_name}` is on stream `{client.stream}` "
-                f"but `{env_stream}` is required. "
-                "Switching stream is not yet supported"
-            )
-            raise P4StreamError(msg)
-        if env_stream and not client.stream:
-            self.log.warning(
-                "Workspace `%s` is not a stream workspace, ignoring "
-                "requested stream `%s`.", ws_name, env_stream)
-        self.log.debug("Stream: %s", client.stream)
+        self._check_stream(client, env_stream)
 
         # get current workspace? -> nah just checkout the correct one already
         try:
@@ -130,3 +122,65 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
         sync_result = P4Commands.run_p4(
             *sync_args, max_severity=MessageSeverity.WARNING)
         self.log.debug("Sync result: %s", sync_result)
+
+        # used by Deadline GlobalJobPreLoad to sync the workspace for every
+        # task, extracted environment (and this hook) can be cached per host
+        self.launch_context.env["AYON_P4_WORKSPACE"] = str(ws_name)
+        self._set_unreal_plugin_env(client.root, uproject_name)
+
+    def _check_stream(self, client: Client, env_stream: str | None) -> None:
+        """Check the workspace is on the stream requested by the submitter.
+
+        Raises:
+            P4StreamError: If the workspace is on a different stream.
+
+        """
+        if env_stream and client.stream and env_stream != client.stream:
+            # assumes workspaces are checked out
+            # to the correct stream per default
+            msg = (
+                f"Workspace `{client.name}` is on stream `{client.stream}` "
+                f"but `{env_stream}` is required. "
+                "Switching stream is not yet supported"
+            )
+            raise P4StreamError(msg)
+        if env_stream and not client.stream:
+            self.log.warning(
+                "Workspace `%s` is not a stream workspace, ignoring "
+                "requested stream `%s`.", client.name, env_stream)
+        self.log.debug("Stream: %s", client.stream)
+
+    def _set_unreal_plugin_env(
+            self, workspace_root: Path, uproject_name: str) -> None:
+        """Point the Deadline UnrealEngine5 plugin to this render node.
+
+        The plugin prefers these environment variables over ``ProjectFile``
+        and ``Executable`` plugin info, which are paths on the machine that
+        submitted the job.
+
+        Args:
+            workspace_root: Root of the synced workspace, it is the Unreal
+                project directory (see `PerforceWorkspaceCreationHook`).
+            uproject_name: Unreal project name.
+
+        """
+        env = self.launch_context.env
+        uproject = Path(workspace_root) / f"{uproject_name}.uproject"
+        if uproject.is_file():
+            env["ProjectRoot"] = Path(workspace_root).as_posix()
+            env["UnrealUProject"] = uproject.as_posix()
+            self.log.debug("Unreal project: %s", uproject)
+        else:
+            self.log.warning(
+                "Unreal project `%s` not found in workspace, "
+                "plugin info `ProjectFile` will be used.", uproject)
+
+        # render with the command line editor of the configured application
+        executable = Path(str(self.launch_context.executable))
+        cmd_executable = executable.with_name(
+            f"{executable.stem}-Cmd{executable.suffix}")
+        if cmd_executable.is_file():
+            executable = cmd_executable
+        if executable.is_file():
+            env["UnrealExecutable"] = executable.as_posix()
+            self.log.debug("Unreal executable: %s", executable)
