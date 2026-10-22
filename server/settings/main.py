@@ -38,7 +38,7 @@ class CollectPerforceProfileModel(BaseSettingsModel):
 
 class CollectPerforceControlModel(BaseSettingsModel):
     """Collect Perforce Control settings."""
-    _isGroup = True  # noqa: N815
+    _isGroup = True  # ruff: ignore[mixed-case-variable-in-class-scope]
     enabled: bool = False
     profiles: list[CollectPerforceProfileModel] = Field(
         default_factory=list,
@@ -116,6 +116,15 @@ class PerforceSettings(BaseSettingsModel):
         title="Stream Settings",
         description="WIP: enable to use streams in p4"
     )
+    auto_submit_data_files: bool = Field(
+        default=True,
+        title="Auto-submit pipeline data files",
+        description=(
+            "Submit files with pipeline data written by host integrations "
+            "(e.g. publish context data) in a dedicated changelist, so they "
+            "are not reported as uncommitted changes on publish."
+        ),
+    )
     publish: PublishPluginsModel = Field(
         default_factory=PublishPluginsModel,
         title="Publish Plugins",
@@ -126,8 +135,9 @@ DEFAULT_VALUES = {
   "port": 1666,
   "workspace": {
     "depot": "{project[code]}",
-    "template": "{workstation[hostname]}_{workstation[system_name]}_{project[code]}"  # noqa: E501
+    "template": "{workstation[hostname]}_{workstation[system_name]}_{project[code]}"  # ruff: ignore[line-too-long]
   },
+  "auto_submit_data_files": True,
   "stream": {
     "enabled": False,
     "profiles": []

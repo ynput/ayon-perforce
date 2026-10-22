@@ -1,8 +1,7 @@
-# -*- coding: utf-8 -*-
 """Package declaring addon version."""
 name = "perforce"
 title = "Perforce"
-version = "0.0.1+dev.1"
+version = "0.1.0+dev.1"
 client_dir = "ayon_perforce"
 
 ayon_required_addons = {

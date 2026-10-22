@@ -1,2 +1,7 @@
+[project]
+name="perforce"
+description="AYON Perforce addon."
+
+
 [ayon.runtimeDependencies]
-p4python = "^2023.1.2454917"
+typing-extensions = "^4"

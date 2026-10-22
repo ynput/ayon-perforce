@@ -18,11 +18,9 @@ from ayon_applications import (
     PreLaunchHook,
 )
 from ayon_core.addon import AddonsManager
-from ayon_core.tools.utils import get_qt_app
 from ayon_perforce import is_perforce_enabled
 from ayon_perforce.addon import LaunchData
-from ayon_perforce.backend.rest_stub import PerforceRestStub
-from ayon_perforce.changes_viewer import ChangesWindows
+from ayon_perforce.api.commands import P4Commands
 
 if TYPE_CHECKING:
     from ayon_perforce.addon import ConnectionInfo, PerforceAddon
@@ -46,6 +44,10 @@ class SyncUnrealProject(PreLaunchHook):
 
     def execute(self) -> None:
         """Show dialog to sync Unreal project."""
+        # these import Qt so not available in headless modes
+        from ayon_core.tools.utils import get_qt_app
+        from ayon_perforce.changes_viewer import ChangesWindows
+
         perforce_addon = self._get_enabled_perforce_addon()
         if not perforce_addon:
             self.log.info("Perforce Addon is not enabled, skipping")
@@ -98,9 +100,9 @@ class SyncUnrealProject(PreLaunchHook):
             #       - just the ws_name isn't enough
             raise RuntimeError(msg)
 
-        PerforceRestStub.login(**asdict(conn_info))
+        P4Commands.login(**asdict(conn_info))
 
-        workspace_dir = PerforceRestStub.get_workspace_dir(
+        workspace_dir = P4Commands.get_workspace_dir(
             workspace_name=conn_info.workspace_name)
         if not os.path.exists(workspace_dir):
             msg = f"Workspace '{workspace_dir}' does not exists."

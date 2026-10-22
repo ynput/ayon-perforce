@@ -1,10 +1,7 @@
-from qtpy import QtCore, QtWidgets, QtGui
-
-from ayon_core import style
-from ayon_core import resources
+from ayon_core import resources, style
 from ayon_core.addon import AYONAddon
-
 from ayon_perforce import lib as p4lib
+from qtpy import QtCore, QtGui, QtWidgets
 
 
 class PerforceLoginDialog(QtWidgets.QDialog):

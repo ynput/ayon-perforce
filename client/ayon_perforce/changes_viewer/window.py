@@ -52,7 +52,7 @@ class ChangesWindows(QtWidgets.QDialog):
         self._controller = controller
         self._details_widget = details_widget
 
-    def showEvent(self, *args, **kwargs) -> None:  # noqa: N802, ANN002, ANN003
+    def showEvent(self, *args, **kwargs) -> None:  # ruff: ignore[invalid-function-name, missing-type-args, missing-type-kwargs]
         """Show event."""
         super().showEvent(*args, **kwargs)
         if self._first_show:
