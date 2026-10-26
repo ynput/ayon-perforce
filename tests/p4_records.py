@@ -316,6 +316,22 @@ DOCUMENTED_OPENED_DEFAULT = {
     "client": WS,
 }
 
+# p4d 2026.1: files opened for add have no revision and newer servers
+# send fields the models don't know (``pathSource``).
+CAPTURED_OPENED_ADD = {
+    "code": "stat",
+    "depotFile": f"{STREAM}/new.uasset",
+    "clientFile": f"//{WS}/new.uasset",
+    "rev": "1",
+    "haveRev": "none",
+    "action": "add",
+    "change": "102",
+    "type": "binary+l",
+    "user": "artist",
+    "client": WS,
+    "pathSource": "client",
+}
+
 DOCUMENTED_OPENED_LOCKED_MOVED = {
     **DOCUMENTED_OPENED_DEFAULT,
     "action": "move/add",
@@ -416,6 +432,13 @@ DOCUMENTED_SYNC_FIRST = {
     "totalFileSize": "240",
     "totalFileCount": "2",
     "change": "128",
+}
+
+DOCUMENTED_SYNC_CANT_CLOBBER_ERROR = {
+    "code": "error",
+    "data": f"Can't clobber writable file {ROOT}\\b.txt\n",
+    "severity": 3,
+    "generic": 17,
 }
 
 DOCUMENTED_SYNC_NEXT = {

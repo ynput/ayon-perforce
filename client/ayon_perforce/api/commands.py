@@ -37,6 +37,7 @@ from ayon_perforce.api.models import (
     PerforceDict,
     Revision,
     Sync,
+    UncommittedChange,
     User,
 )
 
@@ -162,7 +163,19 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
                 continue
             result.append(record)
 
-        if proc.returncode != 0 and not has_records and (errors or not result):
+        # A command can fail only partially, e.g. ``sync`` of one file out
+        # of many or ``submit`` after "Submitting change..." info. Any
+        # failed record fails the whole command, warnings above
+        # `max_severity` are dropped as before.
+        failed = [
+            r for r in errors
+            if int(r.get("severity", 0)) >= MessageSeverity.FAILED.value
+        ]
+        if failed:
+            errors = failed
+        if failed or (
+            proc.returncode != 0 and not has_records and (errors or not result)
+        ):
             if errors:
                 msg = "; ".join(
                     r.get("data", "unknown p4 error").strip() for r in errors
@@ -519,21 +532,31 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
             else:
                 yield FStat(**data)  # type: ignore[arg-type]
 
-    def opened(self, changelist: str | None = None) -> Iterator[FStat]:
+    def opened(
+        self,
+        changelist: str | None = None,
+        *,
+        client: str | None = None,
+        all_changelists: bool = False,
+    ) -> Iterator[FStat]:
         """Get opened files on the current server.
 
         Args:
             changelist: Changelist number or None for default changelist.
+            client: Client workspace to list files of, current client
+                if not set.
+            all_changelists: List files opened in any changelist of the
+                client, `changelist` is ignored.
 
         Yields:
             An iterator of `FStat` objects representing the opened files.
 
         """
         command = ["opened"]
-        if changelist is not None:
-            command += ["-c", changelist]
-        else:
-            command += ["-c", "default"]
+        if client:
+            command += ["-C", client]
+        if not all_changelists:
+            command += ["-c", changelist or "default"]
 
         for data in self.run_p4(*command):
             yield FStat(**data)  # type: ignore[arg-type]
@@ -690,21 +713,67 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
     # ------------------------------------------------------------------
 
     @classmethod
+    def set_connection(
+        cls,
+        host: str,
+        port: int,
+        username: str | None = None,
+        workspace_name: str | None = None,
+        password: str | None = None,
+    ) -> None:
+        """Store connection parameters used by all following commands.
+
+        They are passed to ``p4`` as environment variables of the process
+        only, so the global ``p4 set`` configuration is not changed.
+
+        Args:
+            host (str): Perforce server hostname.
+            port (int): Perforce server port.
+            username (str, optional): Perforce username.
+            workspace_name (str, optional): Client workspace name.
+            password (str, optional): Perforce password.
+
+        """
+        cls._connection = Connection(
+            port=f"{host}:{port}",
+            user=username or None,
+            client=workspace_name or None,
+            password=password or None,
+        )
+
+    @classmethod
+    def set_client(cls, client: str) -> None:
+        """Use client workspace for following commands of this process.
+
+        Unlike ``p4 set P4CLIENT``, it doesn't change the client of other
+        processes on the machine, e.g. concurrent render jobs.
+
+        Args:
+            client (str): Client workspace name.
+
+        """
+        connection = cls._connection or Connection(port="")
+        cls._connection = connection._replace(client=client)
+
+    @classmethod
     def login(
         cls,
         host: str,
         port: int,
         username: str,
-        password: str,
+        password: str | None,
         workspace_name: str,
     ) -> dict:
         """Store connection parameters and authenticate with ``p4 login``.
+
+        Login is skipped when there is a valid ticket already. Without
+        password, the existing ticket (or ``P4PASSWD``) is relied on.
 
         Args:
             host (str): Perforce server hostname.
             port (int): Perforce server port.
             username (str): Perforce username.
-            password (str): Perforce password.
+            password (str | None): Perforce password.
             workspace_name (str): Client workspace name.
 
         Returns:
@@ -714,14 +783,37 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
             RuntimeError: If ``p4 login`` exits with a non-zero status.
 
         """
-        cls._connection = Connection(
-            port=f"{host}:{port}",
-            user=username,
-            client=workspace_name,
+        cls.set_connection(
+            host=host,
+            port=port,
+            username=username,
+            workspace_name=workspace_name,
             password=password,
         )
         env = cls._get_env()
         p4_exe = shutil.which("p4") or "p4"
+        status = subprocess.run(
+            [p4_exe, "login", "-s"],
+            capture_output=True,
+            check=False,
+            env=env,
+        )
+        if status.returncode == 0:
+            log.debug(
+                "p4 login -s: %s",
+                status.stdout.decode(errors="replace").strip()
+            )
+            return {"status": "ok"}
+
+        if not password:
+            log.warning(
+                "No valid Perforce ticket and no password stored for "
+                "'%s', relying on existing p4 configuration: %s",
+                username,
+                status.stderr.decode(errors="replace").strip(),
+            )
+            return {"status": "ok"}
+
         proc = subprocess.run(
             [p4_exe, "login"],
             input=f"{password}\n".encode(),
@@ -730,7 +822,10 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
             env=env,
         )
         if proc.returncode != 0:
-            raise RuntimeError(proc.stderr.decode(errors="replace").strip())
+            cls._connection = None
+            msg = proc.stderr.decode(errors="replace").strip()
+            msg = f"Perforce login of '{username}' failed: {msg}"
+            raise RuntimeError(msg)
 
         log.debug("p4 login: %s", proc.stdout.decode(errors="replace").strip())
         return {"status": "ok"}
@@ -863,32 +958,41 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         return list(records)
 
     @staticmethod
-    def get_uncommitted_changes(client: str | None = None) -> list[ChangeInfo]:
-        """Return pending (uncommitted) changelists for the current client.
+    def get_uncommitted_changes(
+        client: str | None = None,
+    ) -> list[UncommittedChange]:
+        """Return uncommitted work of the client workspace.
+
+        Contains files opened in any changelist and pending changelists
+        without opened files.
 
         Args:
             client: Optional Perforce client name.
                 If not set, the current client is used.
 
         Returns:
-            list[ChangeInfo]: Pending changelist records, including any
-                open files in the default changelist.
+            list[UncommittedChange]: Opened files and pending changelists.
 
         """
         p4 = P4Commands()
-        records = list(
+        pending = list(
             p4.changes(
                 client=client,
                 status=ChangeStatus.PENDING
             )
         )
         try:
-            default_open = list(p4.opened())
+            opened = list(p4.opened(client=client, all_changelists=True))
         except P4Error:
-            default_open = []
-        if default_open:
-            records.extend(default_open)
-        return list(records)
+            opened = []
+        records = [UncommittedChange.from_fstat(fstat) for fstat in opened]
+        changes_with_files = {fstat.change for fstat in opened}
+        records.extend(
+            UncommittedChange.from_change_info(change)
+            for change in pending
+            if change.change not in changes_with_files
+        )
+        return records
 
     def submit_change_list(self, comment: str) -> dict:
         """Submit the pending changelist whose description matches *comment*.
@@ -1001,14 +1105,14 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
     def get_available_depots(cls) -> list[str]:
         """Return a list of all depot names on the server.
 
+        Errors of the command (e.g. failed login) are not caught, so they
+        aren't mistaken for a missing depot.
+
         Returns:
             list[str]: List of depot names.
 
         """
-        try:
-            records = cls.run_p4("depots")
-        except P4Error:
-            return []
+        records = cls.run_p4("depots")
         return [r.get("name", "") for r in records if "name" in r]
 
     @classmethod
@@ -1032,6 +1136,9 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
     def get_available_streams(cls, depot: str | None = None) -> list[str]:
         """Return a list of all streams on the server.
 
+        Errors of the command (e.g. failed login) are not caught, so they
+        aren't mistaken for a missing stream.
+
         Args:
             depot (str | None): Optional depot name to filter streams.
 
@@ -1039,15 +1146,14 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
             list[str]: List of stream paths.
 
         """
+        args = ["streams"]
         if depot:
             if not depot.startswith("//"):
                 depot = f"//{depot}"
             if not depot.endswith("/..."):
                 depot = f"{depot}/..."
-        try:
-            records = cls.run_p4("streams", depot or "")
-        except P4Error:
-            return []
+            args.append(depot)
+        records = cls.run_p4(*args)
         return [
             r.get("Stream", "") for r in records if "Stream" in r
         ]

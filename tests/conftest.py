@@ -50,6 +50,21 @@ def _encode(value: Any) -> Any:  # ruff: ignore[any-type]
     return value
 
 
+def _load_stdin(data: bytes | None) -> Any:  # ruff: ignore[any-type]
+    """Decode stdin, marshaled spec or plain text (``p4 login``).
+
+    Returns:
+        Decoded stdin or None.
+
+    """
+    if not data:
+        return None
+    try:
+        return marshal.loads(data)  # ruff: ignore[suspicious-marshal-usage]
+    except (EOFError, ValueError, TypeError):
+        return data.decode()
+
+
 class FakeP4:
     """Replacement for ``subprocess.run`` emulating ``p4 -G``.
 
@@ -96,7 +111,7 @@ class FakeP4:
         args = cmd[2:] if cmd[1:2] == ["-G"] else cmd[1:]
         self.calls.append({
             "args": args,
-            "stdin": marshal.loads(input) if input else None,  # ruff: ignore[suspicious-marshal-usage]
+            "stdin": _load_stdin(input),
             "env": kwargs.get("env"),
         })
         if not self._responses:

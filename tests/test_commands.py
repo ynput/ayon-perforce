@@ -25,6 +25,7 @@ from ayon_perforce.api.models import (
     MessageSeverity,
     Revision,
     Sync,
+    UncommittedChange,
     User,
 )
 
@@ -93,6 +94,30 @@ def test_run_p4_failure_raises_with_error_data(fake_p4: FakeP4) -> None:
         P4Commands.run_p4("change", "-o", "99999")
     assert "Change 99999 unknown." in str(exc_info.value)
     assert exc_info.value.data == rec.DOCUMENTED_CHANGE_UNKNOWN_ERROR
+
+
+def test_run_p4_partial_failure_raises(fake_p4: FakeP4) -> None:
+    """Failed record raises even if other records succeeded."""
+    fake_p4.respond(
+        rec.DOCUMENTED_SYNC_FIRST,
+        rec.DOCUMENTED_SYNC_CANT_CLOBBER_ERROR,
+        returncode=1,
+    )
+    with pytest.raises(CommandExecutionError, match="clobber") as exc_info:
+        P4Commands.run_p4("sync", max_severity=MessageSeverity.WARNING)
+    assert exc_info.value.data == rec.DOCUMENTED_SYNC_CANT_CLOBBER_ERROR
+
+
+def test_run_p4_failed_record_with_zero_exit_code_raises(
+    fake_p4: FakeP4,
+) -> None:
+    """Failed record raises regardless of the exit code."""
+    fake_p4.respond(
+        {"code": "info", "data": "Submitting change 5.", "level": 0},
+        rec.DOCUMENTED_CHANGE_UNKNOWN_ERROR,
+    )
+    with pytest.raises(CommandExecutionError, match="Change 99999"):
+        P4Commands.run_p4("submit", "-c", "5")
 
 
 def test_run_p4_failure_without_records_uses_stderr(fake_p4: FakeP4) -> None:
@@ -314,11 +339,24 @@ def test_submit_change_list_missing(fake_p4: FakeP4) -> None:
 
 
 def test_get_uncommitted_changes(fake_p4: FakeP4) -> None:
-    """Pending changes and default changelist files are combined."""
-    fake_p4.respond(rec.CAPTURED_CHANGES_PENDING)
-    fake_p4.respond(rec.DOCUMENTED_OPENED_DEFAULT)
-    result = P4Commands.get_uncommitted_changes()
-    assert [type(item) for item in result] == [ChangeInfo, FStat]
+    """Opened files and pending changelists without files are combined."""
+    empty_pending = {**rec.CAPTURED_CHANGES_PENDING, "change": "103"}
+    fake_p4.respond(
+        {**rec.CAPTURED_CHANGES_PENDING, "change": "102"}, empty_pending
+    )
+    fake_p4.respond(rec.DOCUMENTED_OPENED_DEFAULT, rec.CAPTURED_OPENED_ADD)
+    result = P4Commands.get_uncommitted_changes(rec.WS)
+
+    assert fake_p4.args[1] == ["opened", "-C", rec.WS]
+    assert all(isinstance(item, UncommittedChange) for item in result)
+    rows = [(item.change, item.action, item.client_file) for item in result]
+    assert rows == [
+        ("default", "edit", f"//{rec.WS}/a.txt"),
+        (102, "add", f"//{rec.WS}/new.uasset"),
+        (103, None, None),
+    ]
+    assert str(result[0]) == f"[edit]\t//{rec.WS}/a.txt"
+    assert str(result[2]).startswith("[change 103]")
 
 
 # ---------------------------------------------------------------------------
@@ -552,6 +590,81 @@ def test_available_lists(fake_p4: FakeP4) -> None:
     assert P4Commands.get_available_workspaces("artist") == [rec.WS]
     assert P4Commands.get_available_streams("stream_depot") == [rec.STREAM]
     assert fake_p4.args[2] == ["streams", "//stream_depot/..."]
+
+
+PASSWORD_INVALID = b"Perforce password (P4PASSWD) invalid or unset."
+
+
+def test_available_lists_propagate_errors(fake_p4: FakeP4) -> None:
+    """Connection or login failure is not reported as missing objects."""
+    fake_p4.respond(returncode=1, stderr=PASSWORD_INVALID)
+    fake_p4.respond(returncode=1, stderr=PASSWORD_INVALID)
+    with pytest.raises(CommandExecutionError, match="P4PASSWD"):
+        P4Commands.get_available_depots()
+    with pytest.raises(CommandExecutionError, match="P4PASSWD"):
+        P4Commands.get_available_streams()
+    assert fake_p4.args[1] == ["streams"]
+
+
+# ---------------------------------------------------------------------------
+# connection / login
+# ---------------------------------------------------------------------------
+LOGIN = {
+    "host": "p4.local",
+    "port": 1666,
+    "username": "artist",
+    "workspace_name": rec.WS,
+}
+
+
+def test_login_with_valid_ticket_skips_login(fake_p4: FakeP4) -> None:
+    """Existing ticket is used, password isn't sent."""
+    fake_p4.respond(stderr=b"")
+    P4Commands.login(**LOGIN, password="pw")  # ruff: ignore[hardcoded-password-func-arg]
+    assert fake_p4.args == [["login", "-s"]]
+    assert P4Commands._connection == Connection(  # ruff: ignore[private-member-access]
+        port="p4.local:1666", user="artist", client=rec.WS, password="pw",  # ruff: ignore[hardcoded-password-func-arg]
+    )
+
+
+def test_login_without_password_relies_on_ticket(fake_p4: FakeP4) -> None:
+    """Missing password doesn't send "None" to ``p4 login``."""
+    fake_p4.respond(returncode=1, stderr=PASSWORD_INVALID)
+    P4Commands.login(**LOGIN, password=None)
+    assert fake_p4.args == [["login", "-s"]]
+    connection = P4Commands._connection  # ruff: ignore[private-member-access]
+    assert connection is not None
+    assert connection.password is None
+
+
+def test_login_with_password(fake_p4: FakeP4) -> None:
+    """Password is sent to ``p4 login`` when there is no ticket."""
+    fake_p4.respond(returncode=1)
+    fake_p4.respond()
+    P4Commands.login(**LOGIN, password="pw")  # ruff: ignore[hardcoded-password-func-arg]
+    assert fake_p4.args == [["login", "-s"], ["login"]]
+    assert fake_p4.calls[1]["stdin"] == "pw\n"
+
+
+def test_login_failure_resets_connection(fake_p4: FakeP4) -> None:
+    """Failed login doesn't leave half-configured connection behind."""
+    fake_p4.respond(returncode=1)
+    fake_p4.respond(returncode=1, stderr=b"Password invalid.")
+    with pytest.raises(RuntimeError, match="Password invalid"):
+        P4Commands.login(**LOGIN, password="wrong")  # ruff: ignore[hardcoded-password-func-arg]
+    assert P4Commands._connection is None  # ruff: ignore[private-member-access]
+
+
+def test_set_client_is_process_local(fake_p4: FakeP4) -> None:
+    """Client is passed to p4 by env, ``p4 set`` isn't used."""
+    P4Commands.set_connection(host="p4.local", port=1666, username="artist")
+    P4Commands.set_client("render_ws")
+    fake_p4.respond()
+    P4Commands.run_p4("info")
+    assert fake_p4.args == [["info"]]
+    env = fake_p4.calls[0]["env"]
+    assert env["P4CLIENT"] == "render_ws"
+    assert env["P4PORT"] == "p4.local:1666"
 
 
 def test_get_submitted_changes_uses_stream(fake_p4: FakeP4) -> None:

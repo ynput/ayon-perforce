@@ -13,6 +13,7 @@ from ayon_core.lib import StringTemplate, ayon_info
 from ayon_core.pipeline import Anatomy
 from ayon_core.pipeline.template_data import get_template_data_with_names
 from ayon_perforce.addon import is_perforce_enabled
+from ayon_perforce.api.commands import P4Commands
 from ayon_perforce.lib import P4Workspace, get_local_login
 
 
@@ -62,7 +63,7 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
         tmpls = proj["config"]["templates"]
 
         # get p4username from registry
-        owner = get_local_login()[0]
+        owner, password = get_local_login()
         if not owner:
             msg = "Cannot determine p4 user."
             raise RuntimeError(msg)
@@ -72,6 +73,18 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
         ws_tmpl = StringTemplate(ws_tmpl)
         ws_name = ws_tmpl.format_strict(tmpl_data)
         self.log.info("%s", ws_name)
+
+        # use server from settings, not the ambient p4 configuration
+        p4_setts = proj_setts["perforce"]
+        self.log.info(
+            "Perforce server: %s:%s", p4_setts["host_name"], p4_setts["port"])
+        P4Commands.login(
+            host=p4_setts["host_name"],
+            port=p4_setts["port"],
+            username=owner,
+            password=password,
+            workspace_name=str(ws_name),
+        )
 
         # workspace root template
         # "file": "{project[code]}.{ext}",
@@ -105,7 +118,12 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
             )
             self.log.info("%s", req_ws)
             # on farm `PerforcePreLaunchFarmHook` syncs to the job changelist
-            req_ws.switch(force=is_remote_run, sync=not is_remote_run)
+            # on farm, don't change the workspace of concurrent jobs
+            req_ws.switch(
+                force=is_remote_run,
+                sync=not is_remote_run,
+                persist=not is_remote_run,
+            )
         except Exception as err:
             errmsg = f"Failed to checkout workspace. {err}"
             raise RuntimeError(errmsg) from err

@@ -100,12 +100,9 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
 
         self._check_stream(client, env_stream)
 
-        # get current workspace? -> nah just checkout the correct one already
-        try:
-            P4Commands.run_p4("set", f"P4CLIENT={ws_name}")
-        except Exception as e:
-            msg = "Failed to set workspace"
-            raise P4WorkspaceError(msg) from e
+        # process-local, `p4 set` would switch the workspace of concurrent
+        # jobs on this render node too
+        P4Commands.set_client(str(ws_name))
 
         # revert any changes, "file(s) not opened" is just a warning
         revert_result = P4Commands.run_p4(
@@ -126,6 +123,7 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
         # used by Deadline GlobalJobPreLoad to sync the workspace for every
         # task, extracted environment (and this hook) can be cached per host
         self.launch_context.env["AYON_P4_WORKSPACE"] = str(ws_name)
+        self.launch_context.env["P4CLIENT"] = str(ws_name)
         self._set_unreal_plugin_env(client.root, uproject_name)
 
     def _check_stream(self, client: Client, env_stream: str | None) -> None:

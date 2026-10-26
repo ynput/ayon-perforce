@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import os
-from copy import deepcopy
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pyblish.api
 from ayon_core.pipeline import (
@@ -17,6 +16,9 @@ from ayon_core.pipeline.publish import (
 from ayon_core.tools.utils import ErrorMessageBox
 from ayon_perforce.api.commands import P4Commands
 from qtpy import QtCore, QtWidgets
+
+if TYPE_CHECKING:
+    from ayon_perforce.api.models import UncommittedChange
 
 
 class WorkspaceRepairAction(pyblish.api.Action):
@@ -157,7 +159,7 @@ class ChangesSelectionListModel(QtCore.QAbstractListModel):
         if isinstance(index, QtCore.QModelIndex):
             index = index.row()
         if role == QtCore.Qt.DisplayRole:
-            return f"[{self._data[index]['action']}]\t{self._data[index]['clientFile']}"
+            return str(self._data[index])
         if role == QtCore.Qt.UserRole:
             return self._data[index]
         return None
@@ -175,7 +177,7 @@ class UncommittedChangesRepairer(ErrorMessageBox):
 
     def __init__(
             self,
-            uncommitted_changes: list,
+            uncommitted_changes: list[UncommittedChange],
             workspace_dir: str,
             workspace_name: str,
             parent: QtWidgets.QWidget | None = None):
@@ -231,11 +233,13 @@ class UncommittedChangesRepairer(ErrorMessageBox):
         )
         for row in rows:
             index = model.index(row, 0)
+            change: UncommittedChange = index.data(QtCore.Qt.UserRole)
+            if not change.client_file:
+                # pending changelist without opened files
+                continue
             # we need to build an absolute local path
             # it seems p4 revert doesn't like depot or client syntax?!
-            client_file = deepcopy(
-                index.data(QtCore.Qt.UserRole)["clientFile"])
-            client_file = client_file.replace("//", "")
+            client_file = change.client_file.replace("//", "")
             client_file = client_file.replace(
                 str(self.workspace_name), self.workspace_dir)
             client_file = Path(client_file)

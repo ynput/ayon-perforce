@@ -181,7 +181,13 @@ class P4Workspace:
             log.debug("Available depots: %s", depots)
             raise RuntimeError(msg)
 
-    def switch(self, *, force: bool = False, sync: bool = True) -> None:
+    def switch(
+        self,
+        *,
+        force: bool = False,
+        sync: bool = True,
+        persist: bool = True,
+    ) -> None:
         """Update the workspace from generated spec and activates it.
 
         Args:
@@ -189,6 +195,10 @@ class P4Workspace:
                 if there are opened files. Defaults to False.
             sync (bool, optional): Sync the workspace to the latest
                 revision after switching. Defaults to True.
+            persist (bool, optional): Store the workspace with
+                ``p4 set P4CLIENT`` for other processes on the machine.
+                Otherwise it is used only by this process. Defaults
+                to True.
 
         Raises:
             RuntimeError: If the depot or stream are not present,
@@ -231,7 +241,10 @@ class P4Workspace:
         if force:
             switch_cmd.append("-f")
         P4Commands.run_p4(*switch_cmd, stdin_data=spec)
-        P4Commands.run_p4("set", f"P4CLIENT={self.name}")
+        P4Commands.set_client(self.name)
+        if persist:
+            # make it the current workspace for other p4 tools too
+            P4Commands.run_p4("set", f"P4CLIENT={self.name}")
 
         # set instance variables based on created spec
         cmd_out = P4Commands.run_p4("client", "-o", self.name)[0]

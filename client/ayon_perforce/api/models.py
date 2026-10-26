@@ -22,6 +22,7 @@ import shlex
 import types
 from dataclasses import MISSING, dataclass, field, fields
 from enum import Enum
+from logging import getLogger
 from typing import (
     Any,
     Callable,
@@ -58,6 +59,7 @@ __all__ = [
     "Revision",
     "SubmitOptions",
     "Sync",
+    "UncommittedChange",
     "User",
     "UserType",
     "View",
@@ -72,6 +74,7 @@ PerforceDict = dict[str, str]
 Collector = Callable[[dict[str, Any]], Any]
 
 R = TypeVar("R")
+log = getLogger(__name__)
 
 _UNION_TYPES = {Union, getattr(types, "UnionType", Union)}
 
@@ -145,6 +148,13 @@ def _union_members(annotation: Any) -> tuple[Any, ...]:  # ruff: ignore[any-type
     return (annotation,)
 
 
+def _is_optional(annotation: Any) -> bool:  # ruff: ignore[any-type]
+    return (
+        get_origin(annotation) in _UNION_TYPES
+        and type(None) in get_args(annotation)
+    )
+
+
 def _convert(member: Any, value: str) -> Any:  # ruff: ignore[any-type, too-many-return-statements]
     """Convert value to a single (non-union) annotation member.
 
@@ -191,7 +201,7 @@ def _coerce_value(annotation: Any, value: Any) -> Any:  # ruff: ignore[any-type]
     """
     if not isinstance(value, str):
         return value
-    errors = []
+    errors: list[ValueError] = []
     for member in _union_members(annotation):
         try:
             result = _convert(member, value)
@@ -200,6 +210,10 @@ def _coerce_value(annotation: Any, value: Any) -> Any:  # ruff: ignore[any-type]
             continue
         if result is not MISSING:
             return result
+    # p4 uses "none" for missing values, e.g. ``haveRev`` of a file
+    # opened for add.
+    if value == "none" and _is_optional(annotation):
+        return None
     msg = f"Can't convert {value!r} to {annotation}"
     if errors:
         msg = f"{msg}: {errors[-1]}"
@@ -397,6 +411,16 @@ def _enable_alias_kwargs(cls: type[R]) -> type[R]:
                 raise TypeError(msg)
             kwargs[name] = kwargs.pop(alias)
         _collect_and_coerce(kwargs, collectors, type_hints)
+        # Newer p4 servers add fields to their records (e.g.
+        # ``streamStatus`` or ``extraTag0``), the model must not fail
+        # on them.
+        unknown = [key for key in kwargs if key not in field_names]
+        if unknown:
+            log.debug(
+                "%s: ignoring unknown p4 fields %s", cls.__name__, unknown
+            )
+            for key in unknown:
+                kwargs.pop(key)
         original_init(self, *args, **kwargs)
 
     cls.__init__ = __init__
@@ -1240,3 +1264,56 @@ class FStat:
         default_factory=dict,
         repr=False,
     )
+
+
+@dataclass
+class UncommittedChange:
+    """Row of uncommitted work in a client workspace.
+
+    Unifies files opened in any changelist (`FStat`) and pending
+    changelists without opened files (`ChangeInfo`), e.g. empty or with
+    shelved files only.
+    """
+
+    change: int | Literal["default"] | None
+    action: str | None = None
+    client_file: str | None = None
+    depot_file: str | None = None
+    user: str | None = None
+    description: str | None = None
+
+    @classmethod
+    def from_fstat(cls, fstat: FStat) -> UncommittedChange:
+        """Create row from an opened file.
+
+        Returns:
+            Uncommitted change of the file.
+
+        """
+        return cls(
+            change=fstat.change,
+            action=fstat.action.value if fstat.action else None,
+            client_file=fstat.client_file,
+            depot_file=fstat.depot_file,
+            user=fstat.user,
+        )
+
+    @classmethod
+    def from_change_info(cls, change: ChangeInfo) -> UncommittedChange:
+        """Create row from a pending changelist.
+
+        Returns:
+            Uncommitted change of the changelist.
+
+        """
+        return cls(
+            change=change.change,
+            user=change.user,
+            description=change.description,
+        )
+
+    def __str__(self) -> str:
+        if self.client_file:
+            return f"[{self.action}]\t{self.client_file}"
+        description = (self.description or "").strip()
+        return f"[change {self.change}]\t{description}"

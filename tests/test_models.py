@@ -82,10 +82,23 @@ def test_code_key_is_dropped() -> None:
     assert not hasattr(user, "code")
 
 
-def test_unknown_key_raises() -> None:
-    """Unknown keys are not silently ignored."""
-    with pytest.raises(TypeError):
-        User(**rec.CAPTURED_USER_SPEC, Bogus="x")
+def test_unknown_key_is_dropped() -> None:
+    """Fields added by newer p4 servers don't break the model."""
+    user = User(**rec.CAPTURED_USER_SPEC, extraTag0="x")
+    assert user == User(**rec.CAPTURED_USER_SPEC)
+
+
+def test_none_value_for_optional_field() -> None:
+    """p4 "none" (``haveRev`` of a file opened for add) becomes None."""
+    fstat = FStat(**rec.CAPTURED_OPENED_ADD)
+    assert fstat.have_rev is None
+    assert fstat.action == Action.ADD
+
+
+def test_none_value_for_required_field_raises() -> None:
+    """"none" is converted only for optional fields."""
+    with pytest.raises(ValueError, match="none"):
+        ChangeInfo(**{**rec.CAPTURED_CHANGES_PENDING, "change": "none"})
 
 
 def test_datetime_from_date_string() -> None:
