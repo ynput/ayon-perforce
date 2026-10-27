@@ -14,7 +14,7 @@ class PerforceAddon(BaseServerAddon):
     """AYON Integration addon for Perforce."""
     settings_model = PerforceSettings
 
-    async def get_default_settings(self):
+    async def get_default_settings(self) -> PerforceSettings:
         """Get default settings.
 
         Returns:
@@ -29,6 +29,16 @@ class PerforceAddon(BaseServerAddon):
         source_version: str,
         overrides: dict[str, Any],
     ) -> dict[str, Any]:
+        """Convert settings overrides from older addon versions.
+
+        Args:
+            source_version (str): Addon version the overrides come from.
+            overrides (dict[str, Any]): Settings overrides to convert.
+
+        Returns:
+            dict[str, Any]: Converted settings overrides.
+
+        """
         await convert_settings_overrides(source_version, overrides)
         return await super().convert_settings_overrides(
             source_version, overrides

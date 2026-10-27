@@ -2,12 +2,10 @@
 
 import os
 
-from qtpy import QtWidgets
-
 from ayon_core.addon import AYONAddon
-
 from ayon_perforce import lib as p4lib
 from ayon_perforce.tray.login_dialog import PerforceLoginDialog
+from qtpy import QtWidgets
 
 
 def _get_username_action_text() -> str:

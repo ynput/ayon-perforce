@@ -1,6 +1,8 @@
 """Abstract classes for changes viewer."""
 from __future__ import annotations
 
+from typing import Any
+
 
 class ChangeListItem:
     """Item representing regular change list from Perforce.
@@ -34,7 +36,7 @@ class ChangeListItem:
         }
 
     @classmethod
-    def from_data(cls, data) -> ChangeListItem:
+    def from_data(cls, data: dict[str, Any]) -> ChangeListItem:
         """Create instance from data.
 
         Args:

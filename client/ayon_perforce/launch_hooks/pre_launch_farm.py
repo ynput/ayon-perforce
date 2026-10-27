@@ -1,80 +1,61 @@
-import shutil
+"""Set the workspace for farm."""
+from __future__ import annotations
+
 from copy import deepcopy
 from pathlib import Path
-import subprocess
-from typing import List
+from typing import TYPE_CHECKING, ClassVar
 
 from ayon_applications import (
-    PreLaunchHook,
     LaunchTypes,
+    PreLaunchHook,
 )
-
 from ayon_core.lib import StringTemplate
 from ayon_core.lib.ayon_info import get_workstation_info
 from ayon_core.pipeline.template_data import get_template_data
+from ayon_perforce.addon import is_perforce_enabled
+from ayon_perforce.api.commands import P4Commands
+from ayon_perforce.api.exceptions import ClientNotFoundError
+from ayon_perforce.api.models import MessageSeverity
 
-from ayon_perforce.backend.rest_stub import PerforceRestStub
-from ayon_perforce.backend.communication_server import WebServer
-
-
-def call_command(
-    command: List[str], from_stdin=None, start_new_session=False, as_raw=False
-):
-    try:
-        if from_stdin:
-            result = subprocess.run(
-                command,
-                input=from_stdin,
-                capture_output=True,
-                text=True,
-                check=True,
-                start_new_session=start_new_session,
-            )
-        else:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                check=True,
-                start_new_session=start_new_session,
-            )
-        if not as_raw:
-            stdout = result.stdout.splitlines() or []
-            stderr = result.stderr.splitlines() or []
-            result = stdout + stderr
-
-        return result
-    except subprocess.CalledProcessError as e:
-        print(f"Error: {e}")
-        return None
+if TYPE_CHECKING:
+    from ayon_perforce.api.models import Client
 
 
-def get_from_workspaceinfo(ws_info: List[str]):
-    ws = None
-    stream = None
-    for line in ws_info:
-        if "Client name:" in line:
-            ws = line.split(":")[-1].strip()
-        if "Client stream:" in line:
-            stream = line.split(":")[-1].strip()
-    return (ws, stream)
+class P4WorkspaceError(Exception):
+    """Raised on P4 workspace failure."""
+
+
+class P4StreamError(Exception):
+    """Raised on P4 stream failure."""
 
 
 class PerforcePreLaunchFarmHook(PreLaunchHook):
     """Handle workspace reset to commit on remote render jobs."""
 
-    hosts = {"unreal"}
-    launch_types = {LaunchTypes.farm_publish}
+    # TODO(antirotor): Fix type annotations in ayon-core with `ClassVar`
+    hosts: ClassVar[set[str]] = {"unreal"}
+    launch_types: ClassVar[set[str]] = {LaunchTypes.farm_publish}
 
-    def execute(self):
+    def execute(self) -> None:  # ruff: ignore[too-many-locals]
+        """Execute the hook.
+
+        Raises:
+            P4WorkspaceError: If the workspace doesn't exist or setting
+                the workspace fails.
+            ValueError: When missing data for template resolution
+                or the workspace template could not be solved.
+
+        """
         env = deepcopy(self.data["env"])
-        if publish_job := env.get("AYON_PUBLISH_JOB"):
-            if int(publish_job) > 0:
-                return
+        if int(env.get("AYON_PUBLISH_JOB", 0)) > 0:
+            return
+        if not is_perforce_enabled(self.data["project_settings"]):
+            self.log.info("Perforce is not enabled for project, skipping")
+            return
 
-        if not env.get("PERFORCE_WEBSERVER_URL"):
-            p4_webserver = WebServer()
-            p4_webserver.start()
+        if not self.host_name:
+            msg = "Cannot determine host name."
+            raise ValueError(msg)
 
         anatomy = self.data["anatomy"]
         ue_tmpl = anatomy.get_template_item("work", "unreal")
@@ -86,22 +67,18 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
             settings=self.data["project_settings"],
         )
         template_data["ext"] = "uproject"
-        template_data["workstation_info"] = get_workstation_info()
+        workstation_info = get_workstation_info()
+        template_data["workstation"] = workstation_info
+        template_data["workstation_info"] = workstation_info
         uproject_name = Path(ue_tmpl.format(template_data)["file"]).stem
-        print(f"{template_data = }")
+        self.log.debug("Template data: %s", template_data)
 
-        p4_data = {}
-        for key in env.keys():
-            if key == "AYON_P4_WORKSPACE":
-                p4_data["workspace_name"] = env[key]
-            if key == "AYON_P4_STREAM":
-                p4_data["stream"] = env[key]
-            if key == "AYON_P4_CHANGELIST":
-                p4_data["changelist"] = env[key]
-
-        if not p4_data:
-            raise ValueError("No Perforce data found in environment")
-        print(f"{p4_data = }")
+        # optional overrides sent by the submitter
+        env_stream = env.get("AYON_P4_STREAM")
+        changelist = env.get("AYON_P4_CHANGELIST")
+        self.log.debug(
+            "Perforce env data: stream=%s, changelist=%s",
+            env_stream, changelist)
 
         # find render node's workspace
         p4_settings = self.data["project_settings"]["perforce"]
@@ -109,30 +86,99 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
         ws_template = StringTemplate(ws_settings["template"])
         ws_name = ws_template.format(template_data)
         if not ws_name.solved:
-            raise ValueError("Workspace template could not be solved")
+            msg = "Workspace template could not be solved"
+            raise ValueError(msg)
 
-        # get current workspace? -> nah just checkout the correct one already
+        # workspace must exist on the render node, its stream is used
+        # unless the submitter sent one
         try:
-            call_command(["p4", "set", f"P4CLIENT={ws_name}"])  #! can fail -> wrap try/catch
-        except Exception:
-            raise Exception("Failed to set workspace")
+            client = P4Commands().get_client(str(ws_name))
+        except ClientNotFoundError as e:
+            msg = f"Workspace `{ws_name}` does not exist on the server."
+            raise P4WorkspaceError(msg) from e
+        self.log.debug("Workspace: %s", client)
 
-        # get current clientinfo for newly checked out workspace
-        curr_ws_info = call_command(["p4", "info"])
-        print(f"{curr_ws_info = }")
-        curr_ws, curr_stream = get_from_workspaceinfo(curr_ws_info)
-        print(f"{curr_ws = }")
-        print(f"{curr_stream = }")
+        self._check_stream(client, env_stream)
 
-        # check if we're on the correct stream
-        if not curr_stream == p4_data["stream"]:
-            # assumes workspaces are checked out to the correct stream per default
-            raise ValueError("Switching stream is not yet supported")
+        # process-local, `p4 set` would switch the workspace of concurrent
+        # jobs on this render node too
+        P4Commands.set_client(str(ws_name))
 
-        # revert any changes
-        revert_result = call_command(["p4", "revert", "//..."])
-        print(f"{revert_result = }")
+        # revert any changes, "file(s) not opened" is just a warning
+        revert_result = P4Commands.run_p4(
+            "revert", "//...", max_severity=MessageSeverity.WARNING)
+        self.log.debug("Revert result: %s", revert_result)
 
-        # sync to changelist
-        sync_result = call_command(["p4", "sync", f"@{p4_data['changelist']}"])
-        print(f"{sync_result = }")
+        # sync to changelist, or to head if submitter didn't send one
+        if changelist:
+            sync_args = ["sync", f"@{changelist}"]
+        else:
+            self.log.warning(
+                "AYON_P4_CHANGELIST is not set, syncing to head revision.")
+            sync_args = ["sync"]
+        sync_result = P4Commands.run_p4(
+            *sync_args, max_severity=MessageSeverity.WARNING)
+        self.log.debug("Sync result: %s", sync_result)
+
+        # used by Deadline GlobalJobPreLoad to sync the workspace for every
+        # task, extracted environment (and this hook) can be cached per host
+        self.launch_context.env["AYON_P4_WORKSPACE"] = str(ws_name)
+        self.launch_context.env["P4CLIENT"] = str(ws_name)
+        self._set_unreal_plugin_env(client.root, uproject_name)
+
+    def _check_stream(self, client: Client, env_stream: str | None) -> None:
+        """Check the workspace is on the stream requested by the submitter.
+
+        Raises:
+            P4StreamError: If the workspace is on a different stream.
+
+        """
+        if env_stream and client.stream and env_stream != client.stream:
+            # assumes workspaces are checked out
+            # to the correct stream per default
+            msg = (
+                f"Workspace `{client.name}` is on stream `{client.stream}` "
+                f"but `{env_stream}` is required. "
+                "Switching stream is not yet supported"
+            )
+            raise P4StreamError(msg)
+        if env_stream and not client.stream:
+            self.log.warning(
+                "Workspace `%s` is not a stream workspace, ignoring "
+                "requested stream `%s`.", client.name, env_stream)
+        self.log.debug("Stream: %s", client.stream)
+
+    def _set_unreal_plugin_env(
+            self, workspace_root: Path, uproject_name: str) -> None:
+        """Point the Deadline UnrealEngine5 plugin to this render node.
+
+        The plugin prefers these environment variables over ``ProjectFile``
+        and ``Executable`` plugin info, which are paths on the machine that
+        submitted the job.
+
+        Args:
+            workspace_root: Root of the synced workspace, it is the Unreal
+                project directory (see `PerforceWorkspaceCreationHook`).
+            uproject_name: Unreal project name.
+
+        """
+        env = self.launch_context.env
+        uproject = Path(workspace_root) / f"{uproject_name}.uproject"
+        if uproject.is_file():
+            env["ProjectRoot"] = Path(workspace_root).as_posix()
+            env["UnrealUProject"] = uproject.as_posix()
+            self.log.debug("Unreal project: %s", uproject)
+        else:
+            self.log.warning(
+                "Unreal project `%s` not found in workspace, "
+                "plugin info `ProjectFile` will be used.", uproject)
+
+        # render with the command line editor of the configured application
+        executable = Path(str(self.launch_context.executable))
+        cmd_executable = executable.with_name(
+            f"{executable.stem}-Cmd{executable.suffix}")
+        if cmd_executable.is_file():
+            executable = cmd_executable
+        if executable.is_file():
+            env["UnrealExecutable"] = executable.as_posix()
+            self.log.debug("Unreal executable: %s", executable)
