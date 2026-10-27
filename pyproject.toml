@@ -67,6 +67,8 @@ exclude = [
     "venv",
     "vendor",
     "generated",
+    # shared MkDocs build helper, kept identical to the other addons
+    "mkdocs_hooks.py",
 ]
 
 # Same as Black.
