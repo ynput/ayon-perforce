@@ -46,6 +46,9 @@ class ChangesModel(QtGui.QStandardItemModel):
     def refresh(self) -> None:
         """Refresh the model."""
         self.removeRows(0, self.rowCount())  # Clear existing data
+        if not self._controller.enabled:
+            # without project connection p4 would query ambient workspace
+            return
         client = P4Commands().get_client()
         changes = list(P4Commands().changes(
             status=ChangeStatus.SUBMITTED, stream=client.stream))

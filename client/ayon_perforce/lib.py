@@ -159,26 +159,52 @@ class P4Workspace:
             RuntimeError: If the depot or stream are not present.
 
         """
-        # check if the stream is available, classic workspace has none
-        if self.stream and self.stream not in P4Commands.get_available_streams(
-                depot=self.depot):
+        # depot first, p4 error for streams of a missing depot is cryptic
+        depot_types = {
+            record["name"]: record.get("type", "")
+            for record in P4Commands.run_p4("depots")
+            if "name" in record
+        }
+        if self.depot not in depot_types:
             msg = (
-                f"Stream `{self.stream}` does not exist on "
-                "the Perforce server."
+                f"Depot `{self.depot}` does not exist on the Perforce server. "
+                f"Available depots: {', '.join(sorted(depot_types))}"
             )
-            log.debug(
-                "Streams: %s",
-                P4Commands.get_available_streams(depot=self.depot))
             raise RuntimeError(msg)
 
-        # check if the depot is available
-        depots = P4Commands.get_available_depots()
-        if self.depot not in depots:
-            # depot is not in p4 spec
+        # classic workspace has no stream
+        if not self.stream:
+            return
+
+        if depot_types[self.depot] != "stream":
             msg = (
-                f"Depot `{self.depot}` does not exist on the Perforce server."
+                f"Depot `{self.depot}` is not a stream depot "
+                f"(type `{depot_types[self.depot]}`), but stream "
+                f"`{self.stream}` is requested."
             )
-            log.debug("Available depots: %s", depots)
+            raise RuntimeError(msg)
+
+        streams = P4Commands.get_available_streams(depot=self.depot)
+        if self.stream not in streams:
+            msg = (
+                f"Stream `{self.stream}` does not exist on the Perforce "
+                f"server. Available streams: {', '.join(sorted(streams))}"
+            )
+            raise RuntimeError(msg)
+
+    def _check_opened_files(self) -> None:
+        """Check opened files of current workspace don't block stream switch.
+
+        Raises:
+            RuntimeError: If there are opened files and the stream differs.
+
+        """
+        curr_ws = P4Workspace.current()
+        if not curr_ws.owner:
+            curr_ws.owner = self.owner
+        log.debug("Current workspace: %s", curr_ws)
+        if P4Workspace.opened_files() and curr_ws.stream != self.stream:
+            msg = "Workspace has opened files. Can't switch streams."
             raise RuntimeError(msg)
 
     def switch(
@@ -200,14 +226,14 @@ class P4Workspace:
                 Otherwise it is used only by this process. Defaults
                 to True.
 
-        Raises:
-            RuntimeError: If the depot or stream are not present,
-            or if there are opened files and force is False.
+        `RuntimeError` is raised if the depot or stream are not present,
+        or if there are opened files and force is False.
 
         """
         # check if workspace name is already on the server
-        if self.name not in P4Commands.get_available_workspaces(
-                username=self.owner):
+        workspace_exists = self.name in P4Commands.get_available_workspaces(
+            username=self.owner)
+        if not workspace_exists:
             msg = (
                 f"Workspace `{self.name}` does not exist on "
                 "the Perforce server. Creating one."
@@ -225,14 +251,10 @@ class P4Workspace:
                 P4Commands.run_p4("revert", "//...")
             except P4Error:
                 log.warning("Failed to revert files. Ignoring.")
-        else:
-            curr_ws = P4Workspace.current()
-            if not curr_ws.owner:
-                curr_ws.owner = self.owner
-            log.debug("Current workspace: %s", curr_ws)
-            if P4Workspace.opened_files() and curr_ws.stream != self.stream:
-                msg = "Workspace has opened files. Can't switch streams."
-                raise RuntimeError(msg)
+        elif workspace_exists:
+            # new workspace has no opened files, `p4 opened` would fail
+            # with unknown client
+            self._check_opened_files()
 
         # generate a new p4 spec and set it as current workspace
         spec = self.generate_spec()
@@ -371,7 +393,12 @@ class P4Workspace:
         Returns:
             list[str]: A list of opened files.
         """
-        cmd_out: list = P4Commands.run_p4("opened")
+        try:
+            cmd_out: list = P4Commands.run_p4("opened")
+        except P4Error as err:
+            # e.g. client doesn't exist yet
+            log.debug("Can't list opened files: %s", err)
+            return []
         log.debug("opened files: %s", cmd_out)
         return cmd_out
 

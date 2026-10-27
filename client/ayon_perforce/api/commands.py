@@ -350,14 +350,15 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
         command = ["changes"]
         if user:
             command += ["-u", user]
-        if stream:
-            command += [f"{stream}/..."]
         if client:
             command += ["-c", client]
         if status:
             command += ["-s", status.value]
         if long_output:
             command += ["-l"]
+        # file spec must follow options, p4 treats them as paths otherwise
+        if stream:
+            command += [f"{stream}/..."]
 
         for data in self.run_p4(*command):
             if data.get("code") == MarshalCode.ERROR:

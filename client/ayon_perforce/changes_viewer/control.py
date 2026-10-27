@@ -8,6 +8,7 @@ from ayon_core.addon import AddonsManager
 from ayon_core.lib.events import QueuedEventSystem
 from ayon_core.pipeline import registered_host
 
+from ayon_perforce.addon import is_perforce_enabled
 from ayon_perforce.api.commands import P4Commands
 
 if TYPE_CHECKING:
@@ -36,14 +37,18 @@ class ChangesViewerController:
         manager = AddonsManager()
         perforce_addon = manager.get("perforce")
         self._perforce_addon: PerforceAddon = perforce_addon
-        self.enabled = perforce_addon and perforce_addon.enabled
+        # project settings decide, studio settings of the addon may differ
+        self.enabled = bool(perforce_addon) and is_perforce_enabled(
+            launch_data.project_settings)
 
-        self._conn_info: ConnectionInfo = (
-            self._perforce_addon.get_connection_info(
+        self._conn_info: ConnectionInfo | None = None
+        if self.enabled:
+            self._conn_info = self._perforce_addon.get_connection_info(
                 project_name=launch_data.project_name,
                 folder_entity=launch_data.folder_entity,
                 task_entity=launch_data.task_entity,
-            ))
+                project_settings=launch_data.project_settings,
+            )
 
         self._event_system = self._create_event_system()
 
@@ -94,7 +99,6 @@ class ChangesViewerController:
             raise RuntimeError(msg)
 
         self.login()
-        P4Commands.login(**asdict(self._conn_info))
         workspace_dir = P4Commands.get_workspace_dir(
             self._conn_info.workspace_name)
         P4Commands.sync_to_version(

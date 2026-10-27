@@ -308,12 +308,12 @@ def test_changes_arguments(fake_p4: FakeP4) -> None:
             "changes",
             "-u",
             "artist",
-            f"{rec.STREAM}/...",
             "-c",
             rec.WS,
             "-s",
             "pending",
             "-l",
+            f"{rec.STREAM}/...",
         ]
     ]
 
@@ -675,7 +675,7 @@ def test_get_submitted_changes_uses_stream(fake_p4: FakeP4) -> None:
     assert [type(item) for item in result] == [ChangeInfo]
     assert fake_p4.args[1] == [
         "changes",
-        f"{rec.STREAM}/...",
         "-s",
         "submitted",
+        f"{rec.STREAM}/...",
     ]

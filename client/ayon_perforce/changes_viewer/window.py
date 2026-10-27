@@ -7,6 +7,7 @@ import sys
 from typing import TYPE_CHECKING
 
 from ayon_core import style
+from ayon_core.lib import Logger
 from ayon_core.tools.utils.lib import qt_app_context
 from qtpy import QtCore, QtWidgets
 
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     from ayon_perforce.addon import LaunchData
 
 
+log = Logger.get_logger(__name__)
 module = sys.modules[__name__]
 module.window = None
 
@@ -58,7 +60,16 @@ class ChangesWindows(QtWidgets.QDialog):
         if self._first_show:
             self._first_show = False
             self.setStyleSheet(style.load_stylesheet())
-            self._details_widget.reset()
+            # exception must not escape into Qt, it would only be printed
+            try:
+                self._details_widget.reset()
+            except Exception as err:
+                log.exception("Failed to load Perforce changes")
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Perforce error",
+                    f"Failed to load Perforce changes:\n{err}",
+                )
 
 
 def show(parent: QtWidgets.QtWidget | None = None) -> None:
