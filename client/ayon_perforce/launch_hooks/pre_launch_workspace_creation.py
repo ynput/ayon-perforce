@@ -27,7 +27,7 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
     }
     order: ClassVar[float] = -5.2
 
-    def execute(self) -> None:
+    def execute(self) -> None:  # ruff: ignore[too-many-locals]
         """Handle Auto Workspace Creation on any machine.
 
         Raises:

@@ -36,7 +36,7 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
     hosts: ClassVar[set[str]] = {"unreal"}
     launch_types: ClassVar[set[str]] = {LaunchTypes.farm_publish}
 
-    def execute(self) -> None:
+    def execute(self) -> None:  # ruff: ignore[too-many-locals]
         """Execute the hook.
 
         Raises:

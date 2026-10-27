@@ -15,7 +15,7 @@ constructor converts raw p4 strings to the annotated types and fields with
 """
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import pathlib
 import re
 import shlex
@@ -79,36 +79,36 @@ log = getLogger(__name__)
 _UNION_TYPES = {Union, getattr(types, "UnionType", Union)}
 
 
-def perforce_date_to_datetime(string: str) -> datetime.datetime:
-    """Convert p4 date to datetime.
+def perforce_date_to_datetime(string: str) -> dt.datetime:
+    """Convert p4 date to dt.
 
     Args:
         string: date string.
 
     Returns:
-        datetime.datetime with UTC timezone.
+        dt.datetime with UTC timezone.
 
     """
-    utc = datetime.UTC
-    return datetime.datetime.strptime(string, PERFORCE_DATE_FORMAT).replace(
+    utc = dt.UTC
+    return dt.datetime.strptime(string, PERFORCE_DATE_FORMAT).replace(
         tzinfo=utc
     )
 
 
-def perforce_timestamp_to_datetime(time: str) -> datetime.datetime:
-    """Convert p4 timestamp to datetime.
+def perforce_timestamp_to_datetime(time: str) -> dt.datetime:
+    """Convert p4 timestamp to dt.
 
     Args:
         time: timestamp.
 
     Returns:
-        datetime.datetime with UTC timezone.
+        dt.datetime with UTC timezone.
 
     """
-    return datetime.datetime.fromtimestamp(int(time), tz=datetime.UTC)
+    return dt.datetime.fromtimestamp(int(time), tz=dt.UTC)
 
 
-def perforce_datetime_to_timestamp(date: datetime.datetime) -> str:
+def perforce_datetime_to_timestamp(date: dt.datetime) -> str:
     """Convert datetime to timestamp.
 
     Args:
@@ -121,7 +121,7 @@ def perforce_datetime_to_timestamp(date: datetime.datetime) -> str:
     return str(round(date.timestamp()))
 
 
-def datetime_to_perforce_date(date: datetime.datetime) -> str:
+def datetime_to_perforce_date(date: dt.datetime) -> str:
     """Convert datetime to p4 date.
 
     Args:
@@ -134,7 +134,7 @@ def datetime_to_perforce_date(date: datetime.datetime) -> str:
     return date.strftime(PERFORCE_DATE_FORMAT)
 
 
-def _coerce_perforce_datetime(value: str) -> datetime.datetime:
+def _coerce_perforce_datetime(value: str) -> dt.datetime:
     if value.lstrip("-").isdigit():
         return perforce_timestamp_to_datetime(value)
     return perforce_date_to_datetime(value)
@@ -172,7 +172,7 @@ def _convert(member: Any, value: str) -> Any:  # ruff: ignore[any-type, too-many
         # Flags like ``isMapped`` or ``ourLock`` are sent with an empty
         # value, presence of the key means ``True``.
         return True
-    if member is datetime.datetime:
+    if member is dt.datetime:
         return _coerce_perforce_datetime(value)
     if member is int:
         return int(value)
@@ -591,7 +591,7 @@ class User:
         `p4 user`_
     """
 
-    access: datetime.datetime = field(metadata={"alias": "Access"}, repr=False)
+    access: dt.datetime = field(metadata={"alias": "Access"}, repr=False)
     """The date and time this user last ran a Helix Server command."""
 
     auth_method: AuthMethod = field(
@@ -600,7 +600,7 @@ class User:
     full_name: str = field(metadata={"alias": "FullName"})
     type: UserType = field(metadata={"alias": "Type"})
 
-    update: datetime.datetime = field(metadata={"alias": "Update"}, repr=False)
+    update: dt.datetime = field(metadata={"alias": "Update"}, repr=False)
     """The date and time this user was last updated."""
 
     name: str = field(metadata={"alias": "User"})
@@ -748,14 +748,14 @@ class Client:
     host: str | None = field(metadata={"alias": "Host"}, default=None)
     """The name of the workstation on which this workspace resides."""
 
-    access: datetime.datetime | None = field(
+    access: dt.datetime | None = field(
         metadata={"alias": "Access"}, default=None, repr=False)
     """The date and time that the workspace was last used in any way.
 
     ``None`` for a workspace that doesn't exist yet.
     """
 
-    update: datetime.datetime | None = field(
+    update: dt.datetime | None = field(
         metadata={"alias": "Update"}, default=None, repr=False)
     """The date the workspace specification was last modified.
 
@@ -837,7 +837,7 @@ class Change:
     user: str = field(metadata={"alias": "User"})
     """Name of the change owner."""
 
-    date: datetime.datetime | None = field(
+    date: dt.datetime | None = field(
         metadata={"alias": "Date"}, default=None)
     """Date the changelist was last modified. ``None`` for new changelist."""
 
@@ -861,11 +861,11 @@ class Change:
     identity: str | None = field(
         metadata={"alias": "Identity"}, default=None, repr=False)
 
-    shelve_access: datetime.datetime | None = field(
+    shelve_access: dt.datetime | None = field(
         metadata={"alias": "shelveAccess"},
         default=None,
     )
-    shelve_update: datetime.datetime | None = field(
+    shelve_update: dt.datetime | None = field(
         metadata={"alias": "shelveUpdate"},
         default=None,
     )
@@ -885,7 +885,7 @@ class ChangeInfo:
     change: int = field(metadata={"alias": "change"})
     client: str = field(metadata={"alias": "client"})
 
-    date: datetime.datetime = field(metadata={"alias": "time"})
+    date: dt.datetime = field(metadata={"alias": "time"})
     """Date the changelist was last modified."""
 
     description: str = field(metadata={"alias": "desc"}, repr=False)
@@ -1007,7 +1007,7 @@ class Revision:
     depot_file: str = field(metadata={"alias": "depotFile"})
     description: str = field(metadata={"alias": "desc"}, repr=False)
     revision: int = field(metadata={"alias": "rev"})
-    time: datetime.datetime
+    time: dt.datetime
 
     file_type: str = field(metadata={"alias": "type"})
 
@@ -1097,10 +1097,10 @@ class HeadInfo:
     """
 
     file_type: str = field(metadata={"alias": "headType"})
-    time: datetime.datetime = field(metadata={"alias": "headTime"})
+    time: dt.datetime = field(metadata={"alias": "headTime"})
     """Revision **changelist** time."""
 
-    mod_time: datetime.datetime | None = field(
+    mod_time: dt.datetime | None = field(
         metadata={"alias": "headModTime"}, default=None)
     """Revision modification time.
 
