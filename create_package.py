@@ -21,18 +21,19 @@ Package contains server side files directly,
 client side code zipped in `private` subfolder.
 """
 
-import os
-import sys
-import re
-import io
-import shutil
-import platform
 import argparse
-import logging
 import collections
-import zipfile
+import io
+import logging
+import os
+import pathlib
+import platform
+import re
+import shutil
 import subprocess
-from typing import Optional, Iterable, Pattern, Union, List, Tuple
+import sys
+import zipfile
+from typing import Iterable, List, Optional, Pattern, Tuple, Union
 
 import package
 
@@ -58,24 +59,24 @@ __version__ = "{ADDON_VERSION}"
 # Patterns of directories to be skipped for server part of addon
 IGNORE_DIR_PATTERNS: List[Pattern] = [
     re.compile(pattern)
-    for pattern in {
+    for pattern in (
         # Skip directories starting with '.'
         r"^\.",
         # Skip any pycache folders
         "^__pycache__$"
-    }
+    )
 ]
 
 # Patterns of files to be skipped for server part of addon
 IGNORE_FILE_PATTERNS: List[Pattern] = [
     re.compile(pattern)
-    for pattern in {
+    for pattern in (
         # Skip files starting with '.'
         # NOTE this could be an issue in some cases
         r"^\.",
         # Skip '.pyc' files
         r"\.pyc$"
-    }
+    )
 ]
 
 
@@ -127,7 +128,6 @@ def safe_copy_file(src_path: str, dst_path: str):
         src_path (str): File path that will be copied.
         dst_path (str): Path to destination file.
     """
-
     if src_path == dst_path:
         return
 
@@ -166,7 +166,6 @@ def find_files_in_subdir(
         list[tuple[str, str]]: List of tuples with path to file and parent
             directories relative to 'src_path'.
     """
-
     if ignore_file_patterns is None:
         ignore_file_patterns = IGNORE_FILE_PATTERNS
 
@@ -211,8 +210,7 @@ def update_client_version(logger):
         return
 
     logger.info("Updating client version")
-    with open(version_path, "w") as stream:
-        stream.write(VERSION_PY_CONTENT)
+    pathlib.Path(version_path).write_text(VERSION_PY_CONTENT)
 
 
 def build_frontend():
@@ -220,8 +218,8 @@ def build_frontend():
     if yarn_executable is None:
         raise RuntimeError("Yarn executable was not found.")
 
-    subprocess.run([yarn_executable, "install"], cwd=FRONTEND_ROOT)
-    subprocess.run([yarn_executable, "build"], cwd=FRONTEND_ROOT)
+    subprocess.run([yarn_executable, "install"], cwd=FRONTEND_ROOT, check=False)
+    subprocess.run([yarn_executable, "build"], cwd=FRONTEND_ROOT, check=False)
     if not os.path.exists(FRONTEND_DIST_ROOT):
         raise RuntimeError(
             "Frontend build failed. Did not find 'dist' folder."
@@ -316,7 +314,7 @@ def copy_client_code(output_dir: str, log: logging.Logger):
         log (logging.Logger)
 
     """
-    log.info(f"Copying client for {ADDON_NAME}-{ADDON_VERSION}")
+    log.info("Copying client for %s-%s", ADDON_NAME, ADDON_VERSION)
 
     full_output_path = os.path.join(
         output_dir, f"{ADDON_NAME}_{ADDON_VERSION}"
@@ -346,14 +344,14 @@ def copy_addon_package(
         log (logging.Logger): Logger object.
 
     """
-    log.info(f"Copying package for {ADDON_NAME}-{ADDON_VERSION}")
+    log.info("Copying package for %s-%s", ADDON_NAME, ADDON_VERSION)
 
     # Add addon name and version to output directory
     addon_output_dir: str = os.path.join(
         output_dir, ADDON_NAME, ADDON_VERSION
     )
     if os.path.isdir(addon_output_dir):
-        log.info(f"Purging {addon_output_dir}")
+        log.info("Purging %s", addon_output_dir)
         shutil.rmtree(addon_output_dir)
 
     os.makedirs(addon_output_dir, exist_ok=True)
@@ -364,8 +362,7 @@ def copy_addon_package(
         dst_dir: str = os.path.dirname(dst_path)
         os.makedirs(dst_dir, exist_ok=True)
         if isinstance(src_file, io.BytesIO):
-            with open(dst_path, "wb") as stream:
-                stream.write(src_file.getvalue())
+            pathlib.Path(dst_path).write_bytes(src_file.getvalue())
         else:
             safe_copy_file(src_file, dst_path)
 
@@ -377,7 +374,7 @@ def create_addon_package(
     files_mapping: List[FileMapping],
     log: logging.Logger
 ):
-    log.info(f"Creating package for {ADDON_NAME}-{ADDON_VERSION}")
+    log.info("Creating package for %s-%s", ADDON_NAME, ADDON_VERSION)
 
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(
@@ -423,7 +420,7 @@ def main(
         copy_client_code(output_dir, log)
         return
 
-    log.info(f"Preparing package for {ADDON_NAME}-{ADDON_VERSION}")
+    log.info("Preparing package for %s-%s", ADDON_NAME, ADDON_VERSION)
 
     if os.path.exists(FRONTEND_ROOT):
         build_frontend()

@@ -12,21 +12,21 @@ authors = [
 
 ]
 readme = "README.md"
-requires-python = ">=3.9.1,<3.11"
+requires-python = ">=3.11,<3.12"
 license = {file = "LICENSE"}
 
 dependencies = [
-    "p4python ~= 2023.1.2454917",
+    "typing-extensions",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest ~= 8.0",
     "pytest-print ~= 1.0",
-    "ruff ~= 0.9.3",
+    "ruff ~= 0.15",
     "pre-commit",
     "codespell ~= 2.2.6",
-    "mypy ~= 1.14.0",
+    "mypy ~= 2.3.0",
     "semver ~= 3.0.2",
     "clique ~= 2.0",
     "pyblish-base ~= 1.8",
@@ -74,8 +74,8 @@ line-length = 79
 indent-width = 4
 
 
-# Assume Python 3.9
-target-version = "py39"
+# Python of Unreal 5.4+
+target-version = "py311"
 
 [tool.ruff.lint]
 preview = true
@@ -84,23 +84,19 @@ pydocstyle.convention = "google"
 select = ["ALL"]
 ignore = [
     "PTH",
-    "ANN101",  # must be set in older version of ruff
-    "ANN204",
-    "COM812",
-    "S603",
-    "ERA001",
-    "TRY003",
-    "UP006",   # support for older python version (type vs. Type)
-    "UP007",   # ..^
-    "UP035",   # ..
-    "UP045",   # Use `X | None` for type annotations
-    "ARG002",
-    "INP001",  # add `__init__.py` to namespaced package
-    "FIX002",  # FIX all TODOs
-    "TD003",   # missing issue link
-    "S404",    # subprocess module is possibly insecure
-    "PLC0415", # import must be on top of the file
-    "CPY001",  # missing copyright header
+    "missing-return-type-special-method",
+    "missing-trailing-comma",
+    "subprocess-without-shell-equals-true",
+    "commented-out-code",
+    "raise-vanilla-args",
+    "unused-method-argument",
+    "implicit-namespace-package",  # add `__init__.py` to namespaced package
+    "line-contains-todo",  # FIX all TODOs
+    "missing-todo-link",   # missing issue link
+    "suspicious-subprocess-import",    # subprocess module is possibly insecure
+    "import-outside-top-level", # import must be on top of the file
+    "missing-copyright-notice",  # missing copyright header
+    "undocumented-magic-method"  # undocumented magic method
 ]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.
@@ -112,7 +108,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*.py" = ["S101", "PLR2004"]  # allow asserts and magical values
+"tests/*.py" = ["assert", "magic-value-comparison"]  # allow asserts and magical values
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.
@@ -141,6 +137,7 @@ quiet-level = 3
 
 [tool.mypy]
 mypy_path = "$MYPY_CONFIG_FILE_DIR/client"
+python_version = "3.11"
 
 [build-system]
 requires = ["hatchling"]
@@ -150,4 +147,15 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 log_cli = true
 log_cli_level = "INFO"
-addopts = "-ra -q"
+# live server tests run only when selected: `pytest -m live`
+addopts = "-ra -q -m 'not live'"
+markers = [
+    "live: read-only tests against a real Perforce server, connection is read from `tests/.env` or the environment",
+]
+
+[tool.ty.environment]
+extra-paths = [
+    "../ayon-core/client",
+    "../ayon-docker/backend",
+    "../ayon-python-api"
+]

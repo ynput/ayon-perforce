@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from qtpy import QtCore, QtGui
+
+from ayon_perforce.api.commands import P4Commands
+from ayon_perforce.api.models import ChangeStatus
 
 if TYPE_CHECKING:
     from .control import ChangesViewerController
@@ -43,25 +46,30 @@ class ChangesModel(QtGui.QStandardItemModel):
     def refresh(self) -> None:
         """Refresh the model."""
         self.removeRows(0, self.rowCount())  # Clear existing data
-        changes = self._controller.get_changes()
+        if not self._controller.enabled:
+            # without project connection p4 would query ambient workspace
+            return
+        client = P4Commands().get_client()
+        changes = list(P4Commands().changes(
+            status=ChangeStatus.SUBMITTED, stream=client.stream))
         if not changes:
             return
 
         for change in changes:
-            date_time = datetime.fromtimestamp(int(change["time"]), tz=TZ_INFO)
+            date_time = change.date
             date_string = date_time.strftime("%Y%m%dT%H%M%SZ")
 
-            number_item = QtGui.QStandardItem(change["change"])
+            number_item = QtGui.QStandardItem(str(change.change))
             # Store number for sorting
-            number_item.setData(int(change["change"]), CHANGE_ROLE)
-            desc_item = QtGui.QStandardItem(change["desc"])
-            author_item = QtGui.QStandardItem(change["user"])
+            number_item.setData(change.change, CHANGE_ROLE)
+            desc_item = QtGui.QStandardItem(change.description)
+            author_item = QtGui.QStandardItem(change.user)
             date_item = QtGui.QStandardItem(date_string)
             self.appendRow([number_item, desc_item, author_item, date_item])
 
     def data(self, index: QtCore.QModelIndex,
-             role: Optional[int] = QtGui.Qt.DisplayRole
-    ) -> Any:  # noqa: ANN401
+             role: int | None = QtGui.Qt.DisplayRole
+    ) -> Any:  # ruff: ignore[any-type]
         """Return data for the index.
 
         Returns:
@@ -86,7 +94,7 @@ class ChangesModel(QtGui.QStandardItemModel):
 class CustomSortProxyModel(QtCore.QSortFilterProxyModel):
     """Custom sort proxy model."""
 
-    def lessThan(  # noqa: N802
+    def lessThan(  # ruff: ignore[invalid-function-name]
             self,
             source_left: QtCore.QModelIndex,
             source_right: QtCore.QModelIndex) -> bool:

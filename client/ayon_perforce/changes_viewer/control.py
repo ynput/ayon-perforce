@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING
 
 from ayon_core.addon import AddonsManager
 from ayon_core.lib.events import QueuedEventSystem
 from ayon_core.pipeline import registered_host
 
-from ayon_perforce.backend.rest_stub import PerforceRestStub
+from ayon_perforce.addon import is_perforce_enabled
+from ayon_perforce.api.commands import P4Commands
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ayon_core.host import HostBase
 
     from ayon_perforce.addon import ConnectionInfo, LaunchData, PerforceAddon
@@ -23,7 +26,7 @@ class ChangesViewerController:
     """
 
     def __init__(
-            self, launch_data: LaunchData, host: Optional[HostBase] = None):
+            self, launch_data: LaunchData, host: HostBase | None = None):
         """Initialize ChangesViewerController."""
         if host is None:
             host = registered_host()
@@ -34,21 +37,25 @@ class ChangesViewerController:
         manager = AddonsManager()
         perforce_addon = manager.get("perforce")
         self._perforce_addon: PerforceAddon = perforce_addon
-        self.enabled = perforce_addon and perforce_addon.enabled
+        # project settings decide, studio settings of the addon may differ
+        self.enabled = bool(perforce_addon) and is_perforce_enabled(
+            launch_data.project_settings)
 
-        self._conn_info: ConnectionInfo = (
-            self._perforce_addon.get_connection_info(
+        self._conn_info: ConnectionInfo | None = None
+        if self.enabled:
+            self._conn_info = self._perforce_addon.get_connection_info(
                 project_name=launch_data.project_name,
                 folder_entity=launch_data.folder_entity,
                 task_entity=launch_data.task_entity,
-            ))
+                project_settings=launch_data.project_settings,
+            )
 
         self._event_system = self._create_event_system()
 
     def emit_event(
             self, topic: str,
-            data: Optional[dict] = None,
-            source: Optional[str] = None) -> None:
+            data: dict | None = None,
+            source: str | None = None) -> None:
         """Emit event."""
         if data is None:
             data = {}
@@ -72,17 +79,8 @@ class ChangesViewerController:
             msg = "Missing Perforce connection information."
             raise RuntimeError(msg)
 
-        PerforceRestStub.login(**asdict(self._conn_info)
+        P4Commands.login(**asdict(self._conn_info)
         )
-
-    @staticmethod
-    def get_changes() -> list[dict]:
-        """Get changes from Perforce.
-
-        Returns:
-            list[dict]: Changes from Perforce
-        """
-        return PerforceRestStub.get_changes()
 
     def sync_to(self, change_id: int) -> None:
         """Sync to specific changelist number.
@@ -101,10 +99,9 @@ class ChangesViewerController:
             raise RuntimeError(msg)
 
         self.login()
-        PerforceRestStub.login(**asdict(self._conn_info))
-        workspace_dir = PerforceRestStub.get_workspace_dir(
+        workspace_dir = P4Commands.get_workspace_dir(
             self._conn_info.workspace_name)
-        PerforceRestStub.sync_to_version(
+        P4Commands.sync_to_version(
             f"{workspace_dir}/...", change_id)
 
     def get_current_project_name(self) -> str:

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import sys
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from ayon_core import style
+from ayon_core.lib import Logger
 from ayon_core.tools.utils.lib import qt_app_context
 from qtpy import QtCore, QtWidgets
 
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     from ayon_perforce.addon import LaunchData
 
 
+log = Logger.get_logger(__name__)
 module = sys.modules[__name__]
 module.window = None
 
@@ -25,9 +27,9 @@ class ChangesWindows(QtWidgets.QDialog):
     """Changes Viewer Window."""
     def __init__(
             self,
-            controller: Optional[ChangesViewerController] = None,
-            parent: Optional[QtWidgets.QtWidget] = None,
-            launch_data: Optional[LaunchData] = None):
+            controller: ChangesViewerController | None = None,
+            parent: QtWidgets.QtWidget | None = None,
+            launch_data: LaunchData | None = None):
         """Initialize ChangesWindows."""
         super().__init__(parent=parent)
         self.setWindowTitle("Changes Viewer")
@@ -52,16 +54,25 @@ class ChangesWindows(QtWidgets.QDialog):
         self._controller = controller
         self._details_widget = details_widget
 
-    def showEvent(self, *args, **kwargs) -> None:  # noqa: N802, ANN002, ANN003
+    def showEvent(self, *args, **kwargs) -> None:  # ruff: ignore[invalid-function-name, missing-type-args, missing-type-kwargs]
         """Show event."""
         super().showEvent(*args, **kwargs)
         if self._first_show:
             self._first_show = False
             self.setStyleSheet(style.load_stylesheet())
-            self._details_widget.reset()
+            # exception must not escape into Qt, it would only be printed
+            try:
+                self._details_widget.reset()
+            except Exception as err:
+                log.exception("Failed to load Perforce changes")
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Perforce error",
+                    f"Failed to load Perforce changes:\n{err}",
+                )
 
 
-def show(parent: Optional[QtWidgets.QtWidget] = None) -> None:
+def show(parent: QtWidgets.QtWidget | None = None) -> None:
     """Display Change Viewer GUI.
 
     Args:
