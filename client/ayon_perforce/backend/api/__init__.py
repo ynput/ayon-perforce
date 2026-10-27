@@ -533,7 +533,7 @@ class P4ConnectionManager:
     def _get_valid_path_objects(_paths: P4PathType) -> list[pathlib.Path]:
         def _is_valid_path(_path: Union[str, pathlib.Path]) -> bool:
             if isinstance(_path, str):
-                _path = pathlib.Path(_path).anchor.lower()
+                _path = pathlib.Path(_path)
 
             path_anchor_lower = _path.anchor.lower()
             if (
@@ -888,7 +888,7 @@ class P4ConnectionManager:
             _extra_path_existence_errors: list[str],
         ) -> None:
             path_existence_errors = self._path_existence_errors.copy()
-            path_existence_errors.union(_extra_path_existence_errors)
+            path_existence_errors.update(_extra_path_existence_errors)
             if path_existence_errors:
                 error_text = "The following paths do not exist:"
                 for path in path_existence_errors:
@@ -960,8 +960,8 @@ class P4ConnectionManager:
         *,
         none_keys: T_NoneKeys = None,
         none_actions: T_NoneActions = None,
-        true_pattern: str = ...,
-        false_pattern: str = ...,
+        true_pattern: str | None = None,
+        false_pattern: str | None = None,
         set_none: bool = False
     ) -> list[bool | None]:
         """Process the given result to determine if it was successful.
@@ -1351,13 +1351,12 @@ class P4ConnectionManager:
 
             change_dict["Files"] = depot_files
 
-        if files_to_reopen:
-            self.p4.run_reopen(
-                ["-c", description], files_to_reopen
-            )
-
         change_dict["Description"] = description
         save_change_result = self.p4.save_change(change_dict)
+        if files_to_reopen:
+            change_number = self._connect_get_change_list_number(description)
+            self.p4.run_reopen(["-c", change_number], files_to_reopen)
+
         return self._process_result(
             save_change_result, "", "", true_pattern="created."
         )
@@ -1408,7 +1407,7 @@ class P4ConnectionManager:
         if not change_dict:
             return None
 
-        return change_dict["change"]
+        return change_dict["Change"]
 
     def _connect_create_workspace(
         self, name: str, root: str, stream: str
@@ -1435,14 +1434,15 @@ class P4ConnectionManager:
 
         """
         if change_description:
-            change_number = self._connect_create_change_list(
+            self._connect_create_change_list(change_description)
+            change_number = self._connect_get_change_list_number(
                 change_description
             )
             result = self.p4.run_delete(["-c", change_number, path])
         else:
             result = self.p4.run_delete(path)
 
-        return self._process_result(result, "action", "edit")
+        return self._process_result(result, "action", "delete")
 
     def _connect_delete_change_list(
             self,
@@ -1631,7 +1631,8 @@ class P4ConnectionManager:
             if query_sub_folders:
                 return True
 
-            return _path.parent == parent_path
+            # `parent_path` is the query, e.g. `//depot/folder/...`
+            return _path.parent == pathlib.Path(parent_path).parent
 
         result = []
         for _path in path:
@@ -1745,15 +1746,12 @@ class P4ConnectionManager:
             # Sync has failed, potentially due to one or more of the files
             # not existing on p4. Let's filter those files out of `path`
             # and try sync again:
-            warnings = self.p4.warnings.copy()  # type: list[str]
+            warnings = list(self.p4.warnings)  # type: list[str]
             result = [True] * len(path)  # type: list[bool | None]
             latest_paths = tuple(
-
-                    (warning.replace(" - file(s) up-to-date.", ""),
-                     warnings.remove(warning))[0]
-                    for warning in reversed(warnings)
-                    if "file(s) up-to-date." in warning
-
+                warning.replace(" - file(s) up-to-date.", "")
+                for warning in warnings
+                if "file(s) up-to-date." in warning
             )
 
             # @sharkmob-shea.richardson:
@@ -1762,12 +1760,9 @@ class P4ConnectionManager:
                 return result
 
             local_paths = tuple(
-
-                    (warning.replace(" - no such file(s).", ""),
-                     warnings.remove(warning))[0]
-                    for warning in reversed(warnings)
-                    if "no such file(s)." in warning
-
+                warning.replace(" - no such file(s).", "")
+                for warning in warnings
+                if "no such file(s)." in warning
             )
             if local_paths:
                 for _path in local_paths:
@@ -2064,14 +2059,13 @@ class P4ConnectionManager:
 
             )
             if paths_to_sync:
-                sync_result = {}
+                sync_result = []
                 with suppress(P4.P4Exception):
                     sync_result = self._connect_get_latest(paths_to_sync)
 
-                for _ in paths_to_sync:
-                    if sync_result is False:
-                        msg = "Files are not the latest versions!"
-                        raise P4.P4Exception(msg)
+                if any(result is False for result in sync_result):
+                    msg = "Files are not the latest versions!"
+                    raise P4.P4Exception(msg)
 
         path = cast("T_StrTuple", path)
         if len(path) != len(clean_paths):
@@ -2325,7 +2319,7 @@ def __getattr__(attribute_name: str) -> Any:  # noqa: ANN401
 
     module_globals = globals()
     if attribute_name in module_globals:
-        return getattr(module_globals, attribute_name)
+        return module_globals[attribute_name]
 
     msg = f"{__name__} has no attribute: {attribute_name}!"
     raise AttributeError(msg)
