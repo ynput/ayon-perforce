@@ -89,13 +89,73 @@ def get_from_workspaceinfo(
     return (ws, stream)
 
 
+def get_p4_data_from_env(env: dict[str, str]) -> dict[str, str]:
+    """Collect Perforce data of the render job from the environment.
+
+    Args:
+        env (dict[str, str]): Launch environment.
+
+    Returns:
+        dict[str, str]: Workspace name (if set), stream and changelist.
+
+    Raises:
+        ValueError: If no Perforce data, or not the stream and changelist,
+            are in the environment.
+
+    """
+    env_keys = {
+        "AYON_P4_WORKSPACE": "workspace_name",
+        "AYON_P4_STREAM": "stream",
+        "AYON_P4_CHANGELIST": "changelist",
+    }
+    p4_data = {
+        data_key: env[env_key]
+        for env_key, data_key in env_keys.items()
+        if env_key in env
+    }
+    if not p4_data:
+        msg = "No Perforce data found in environment"
+        raise ValueError(msg)
+
+    missing = [
+        env_key
+        for env_key, data_key in env_keys.items()
+        if data_key in {"stream", "changelist"} and data_key not in p4_data
+    ]
+    if missing:
+        msg = f"Missing Perforce data in environment: {', '.join(missing)}"
+        raise ValueError(msg)
+    return p4_data
+
+
+def set_workspace(ws_name: str) -> None:
+    """Set the current Perforce workspace (P4CLIENT).
+
+    Args:
+        ws_name (str): Workspace name.
+
+    Raises:
+        RuntimeError: If the workspace could not be set.
+
+    """
+    msg = "Failed to set workspace"
+    try:
+        # call_command returns None when p4 fails and raises when it can't
+        # run at all (e.g. p4 is missing)
+        result = call_command(["p4", "set", f"P4CLIENT={ws_name}"])
+    except Exception as err:
+        raise RuntimeError(msg) from err
+    if result is None:
+        raise RuntimeError(msg)
+
+
 class PerforcePreLaunchFarmHook(PreLaunchHook):
     """Handle workspace reset to commit on remote render jobs."""
 
     hosts: ClassVar[set[str]] = {"unreal"}
     launch_types: ClassVar[set[str]] = {LaunchTypes.farm_publish}
 
-    def execute(self) -> None:  # noqa: C901 - existing hook logic
+    def execute(self) -> None:
         """Switch to the render node workspace and sync to the changelist.
 
         Raises:
@@ -125,18 +185,7 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
         template_data["workstation_info"] = get_workstation_info()
         self.log.info("template_data = %r", template_data)
 
-        p4_data = {}
-        for key in env:
-            if key == "AYON_P4_WORKSPACE":
-                p4_data["workspace_name"] = env[key]
-            if key == "AYON_P4_STREAM":
-                p4_data["stream"] = env[key]
-            if key == "AYON_P4_CHANGELIST":
-                p4_data["changelist"] = env[key]
-
-        if not p4_data:
-            msg = "No Perforce data found in environment"
-            raise ValueError(msg)
+        p4_data = get_p4_data_from_env(env)
         self.log.info("p4_data = %s", p4_data)
 
         # find render node's workspace
@@ -149,15 +198,13 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
             raise ValueError(msg)
 
         # get current workspace? -> nah just checkout the correct one already
-        try:
-            # ! can fail -> wrap try/catch
-            call_command(["p4", "set", f"P4CLIENT={ws_name}"])
-        except Exception as err:
-            msg = "Failed to set workspace"
-            raise RuntimeError(msg) from err
+        set_workspace(ws_name)
 
         # get current clientinfo for newly checked out workspace
         curr_ws_info = call_command(["p4", "info"])
+        if curr_ws_info is None:
+            msg = "Failed to get workspace info"
+            raise RuntimeError(msg)
         self.log.info("curr_ws_info = %r", curr_ws_info)
         curr_ws, curr_stream = get_from_workspaceinfo(curr_ws_info)
         self.log.info("curr_ws = %r", curr_ws)
