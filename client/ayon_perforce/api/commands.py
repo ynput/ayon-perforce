@@ -1128,10 +1128,8 @@ class P4Commands:  # ruff: ignore[too-many-public-methods]
             list[str]: List of workspace names.
 
         """
-        try:
-            records = cls.run_p4("clients", "-u", username)
-        except P4Error:
-            return []
+        # errors (e.g. failed login) must not look like missing workspace
+        records = cls.run_p4("clients", "-u", username)
         return [r.get("client", "") for r in records if "client" in r]
 
     @classmethod

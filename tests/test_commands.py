@@ -30,6 +30,8 @@ from ayon_perforce.api.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from conftest import FakeP4
 
 
@@ -679,3 +681,149 @@ def test_get_submitted_changes_uses_stream(fake_p4: FakeP4) -> None:
         "submitted",
         f"{rec.STREAM}/...",
     ]
+
+
+# ---------------------------------------------------------------------------
+# error paths of record processing
+# ---------------------------------------------------------------------------
+def test_get_change_other_error_is_raised(fake_p4: FakeP4) -> None:
+    """Errors other than unknown change are raised unchanged."""
+    error = {**rec.DOCUMENTED_CHANGE_UNKNOWN_ERROR, "data": "No permission.\n"}
+    fake_p4.respond(error, returncode=1)
+    with pytest.raises(CommandExecutionError, match="No permission"):
+        P4Commands().get_change(5)
+
+
+def test_fstat_unexpected_warning_raises(fake_p4: FakeP4) -> None:
+    """Warnings other than "no such file(s)." are raised."""
+    warning = {
+        **rec.DOCUMENTED_FSTAT_NO_SUCH_FILE_WARNING,
+        "data": "//ws/a.txt - file(s) not in client view.\n",
+    }
+    fake_p4.respond(warning, returncode=1)
+    with pytest.raises(CommandExecutionError, match="not in client view"):
+        list(P4Commands().fstat(["//ws/a.txt"]))
+
+
+def test_sync_unexpected_warning_raises(fake_p4: FakeP4) -> None:
+    """Sync warnings other than up-to-date are raised."""
+    warning = {
+        **rec.CAPTURED_SYNC_UP_TO_DATE_WARNING,
+        "data": "//ws/a.txt - file(s) not in client view.\n",
+    }
+    fake_p4.respond(warning, returncode=1)
+    with pytest.raises(CommandExecutionError, match="not in client view"):
+        P4Commands().sync(["//ws/a.txt"])
+
+
+def test_sync_info_is_logged_not_returned(fake_p4: FakeP4) -> None:
+    """Info records of sync are not returned as `Sync`."""
+    fake_p4.respond(
+        {"code": "info", "data": "Synced 1 file.", "level": 0},
+        rec.DOCUMENTED_SYNC_DELETED,
+    )
+    result = P4Commands().sync(["//..."])
+    assert [type(item) for item in result] == [Sync]
+
+
+def test_parse_marshal_latin1_and_non_dict() -> None:
+    """Undecodable cp1252 falls back to latin-1, non-dicts are skipped."""
+    import marshal
+
+    data = marshal.dumps("not a record") + marshal.dumps(
+        {b"code": b"stat", b"desc": b"\x81"}
+    )
+    assert P4Commands._parse_marshal(data) == [  # ruff: ignore[private-member-access]
+        {"code": "stat", "desc": "\x81"}
+    ]
+
+
+def test_opened_arguments(fake_p4: FakeP4) -> None:
+    """Opened files of client, changelist or all changelists."""
+    fake_p4.respond()
+    fake_p4.respond()
+    list(P4Commands().opened("12"))
+    list(P4Commands().opened(client=rec.WS, all_changelists=True))
+    assert fake_p4.args == [
+        ["opened", "-c", "12"],
+        ["opened", "-C", rec.WS],
+    ]
+
+
+# ---------------------------------------------------------------------------
+# dict-returning wrappers
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("call", "expected_args"),
+    [
+        (lambda: P4Commands.sync_latest_version("//a"), ["sync", "//a"]),
+        (lambda: P4Commands.sync_to_version("//a", 5), ["sync", "//a@5"]),
+        (lambda: P4Commands.checkout("a.txt", "x"), ["edit", "a.txt"]),
+        (lambda: P4Commands.revert("a.txt"), ["revert", "a.txt"]),
+        (
+            lambda: P4Commands.submit_default_changelist("msg"),
+            ["submit", "-d", "msg"],
+        ),
+    ],
+    ids=["sync-latest", "sync-version", "checkout", "revert", "submit"],
+)
+def test_record_wrappers(
+    fake_p4: FakeP4,
+    call: Callable[[], dict],
+    expected_args: list[str],
+) -> None:
+    """Wrappers return the first record or empty dict."""
+    record = {"code": "stat", "depotFile": "//a"}
+    fake_p4.respond(record)
+    fake_p4.respond()
+    assert call() == record
+    assert call() == {}
+    assert fake_p4.args == [expected_args, expected_args]
+
+
+def test_exists_on_server(fake_p4: FakeP4) -> None:
+    """File known to the server exists, failure means it doesn't."""
+    fake_p4.respond(rec.CAPTURED_FSTAT_SYNCED)
+    fake_p4.respond(returncode=1, stderr=b"no such file")
+    assert P4Commands.exists_on_server("a.txt") is True
+    assert P4Commands.exists_on_server("b.txt") is False
+    assert fake_p4.args[0] == ["fstat", "-m", "1", "a.txt"]
+
+
+def test_is_checkouted_failure(fake_p4: FakeP4) -> None:
+    """Failing or empty fstat is not checked out."""
+    fake_p4.respond(returncode=1, stderr=b"no such file")
+    fake_p4.respond()
+    assert P4Commands.is_checkouted("a.txt") is False
+    assert P4Commands.is_checkouted("a.txt") is False
+
+
+def test_get_workspace_dir_failure_returns_empty(fake_p4: FakeP4) -> None:
+    """Failing ``p4 client`` returns empty root."""
+    fake_p4.respond(returncode=1, stderr=b"Connect to server failed")
+    assert not P4Commands.get_workspace_dir(rec.WS)
+
+
+def test_get_last_change_list_on_stream(fake_p4: FakeP4) -> None:
+    """Last change is looked up on the current stream."""
+    fake_p4.respond(rec.CAPTURED_CLIENT_SPEC_STREAM)
+    fake_p4.respond(rec.CAPTURED_CHANGES_SUBMITTED)
+    assert P4Commands.get_last_change_list() == rec.CAPTURED_CHANGES_SUBMITTED
+    assert fake_p4.args[1] == [
+        "changes", "-s", "submitted", "-m", "1", f"{rec.STREAM}/...",
+    ]
+
+
+def test_get_last_change_list_without_client(fake_p4: FakeP4) -> None:
+    """Without client the last change of the server is returned."""
+    fake_p4.respond(returncode=1, stderr=b"Client unknown")
+    fake_p4.respond()
+    assert P4Commands.get_last_change_list() == {}
+    assert fake_p4.args[1] == ["changes", "-s", "submitted", "-m", "1"]
+
+
+def test_available_workspaces_propagate_errors(fake_p4: FakeP4) -> None:
+    """Login failure is not reported as missing workspace."""
+    fake_p4.respond(returncode=1, stderr=PASSWORD_INVALID)
+    with pytest.raises(CommandExecutionError, match="P4PASSWD"):
+        P4Commands.get_available_workspaces("artist")

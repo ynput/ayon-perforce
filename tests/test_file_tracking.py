@@ -161,3 +161,31 @@ def test_p4_error_on_submit_is_not_raised(fake_p4: FakeP4) -> None:
         pass
 
     assert fake_p4.args[-1] == ["submit", "-c", CHANGE]
+
+
+def test_p4_error_on_open_discards_changelist(fake_p4: FakeP4) -> None:
+    """Failure to open files deletes the changelist, the write still runs."""
+    fake_p4.respond(WHERE_RESULT)
+    _respond_create_changelist(fake_p4)
+    fake_p4.respond(returncode=1, stderr=b"Connect to server failed")
+    fake_p4.respond()  # change -d
+
+    written = False
+    with track_file_changes([PATH], "desc"):
+        written = True
+
+    assert written
+    assert fake_p4.args[-1] == ["change", "-d", CHANGE]
+
+
+def test_p4_error_on_discard_is_not_raised(fake_p4: FakeP4) -> None:
+    """Failed clean up of the changelist is only logged."""
+    fake_p4.respond(WHERE_RESULT)
+    _respond_create_changelist(fake_p4)
+    fake_p4.respond(returncode=1, stderr=b"Connect to server failed")
+    fake_p4.respond(returncode=1, stderr=b"Connect to server failed")
+
+    with track_file_changes([PATH], "desc"):
+        pass
+
+    assert fake_p4.args[-1] == ["change", "-d", CHANGE]

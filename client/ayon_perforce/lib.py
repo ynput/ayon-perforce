@@ -1,7 +1,6 @@
 """Library for Perforce client operations."""
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from os import environ
 from typing import TYPE_CHECKING, Any
@@ -10,6 +9,7 @@ from ayon_core.lib import AYONSecureRegistry, Logger
 
 from ayon_perforce.api.commands import P4Commands
 from ayon_perforce.api.exceptions import P4Error
+from ayon_perforce.api.models import MessageSeverity
 
 if TYPE_CHECKING:
     from ayon_perforce.api.models import PerforceDict
@@ -298,14 +298,19 @@ class P4Workspace:
         Raises:
             RuntimeError: If the sync command fails.
         """
-        sync_dry_run = P4Commands.run_p4("sync", "-n", f"{self.root}/...")
-        if len(sync_dry_run) == 1 and sync_dry_run[0].get("code") == "error":
-            log.error(
-                "%s %s (root %s)",
-                sync_dry_run[0].get("code"),
-                sync_dry_run[0].get("data"),
-                self.root)
-            return
+        try:
+            # "file(s) up-to-date." is a warning, possibly with exit code 1
+            sync_dry_run = P4Commands.run_p4(
+                "sync", "-n", f"{self.root}/...",
+                max_severity=MessageSeverity.WARNING,
+            )
+        except P4Error as err:
+            msg = f"Failed to sync workspace `{self.name}`: {err}"
+            raise RuntimeError(msg) from err
+        sync_dry_run = [
+            record for record in sync_dry_run
+            if record.get("code") != "error"
+        ]
         total_sync_changes: int = len(sync_dry_run)
         log.debug("total changes to sync: %s", total_sync_changes)
         if total_sync_changes == 0:
@@ -321,26 +326,17 @@ class P4Workspace:
             for idx, item in enumerate(result):
                 log.debug("%s / %s - %s", idx + 1, total_sync_changes, item)
             if force:
-                # reconcile all files in the workspace, takes some time
-                cmd = ["p4", "clean", "-n", f"{self.root}/..."]
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1,
+                # preview files not matching the depot, takes some time
+                cleaned = P4Commands.run_p4(
+                    "clean", "-n", f"{self.root}/...",
+                    max_severity=MessageSeverity.WARNING,
                 )
-                for line in iter(proc.stdout.readline, ""):
-                    log.debug(line.strip())
-                proc.stdout.close()
-                retcode = proc.wait()
-                if retcode:
-                    errmsg = f"p4 clean failed: {proc.stderr.strip()}"
-                    raise RuntimeError(errmsg)
+                for item in cleaned:
+                    log.debug("%s", item.get("data") or item)
                 log.info("p4 clean finished successfully.")
-
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError from e
+        except P4Error as err:
+            msg = f"Failed to sync workspace `{self.name}`: {err}"
+            raise RuntimeError(msg) from err
 
     def generate_spec(
             self, stream: str | None = None) -> PerforceDict:

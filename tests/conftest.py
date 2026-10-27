@@ -7,9 +7,12 @@ import subprocess
 import sys
 import types
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 CLIENT_DIR = Path(__file__).resolve().parents[1] / "client"
 if str(CLIENT_DIR) not in sys.path:
@@ -149,3 +152,133 @@ def fake_p4(monkeypatch: pytest.MonkeyPatch) -> FakeP4:
     monkeypatch.setattr(commands.shutil, "which", lambda _: "p4")
     monkeypatch.setattr(commands.P4Commands, "_connection", None)
     return fake
+
+
+# ---------------------------------------------------------------------------
+# ayon_core stub for `ayon_perforce.lib`
+# ---------------------------------------------------------------------------
+class FakeSecureRegistry:
+    """In-memory replacement of ``AYONSecureRegistry``."""
+
+    storage: dict[str, dict[str, str]] = {}  # ruff: ignore[mutable-class-default]
+
+    def __init__(self, name: str) -> None:
+        """Use storage of the registry name."""
+        self._items = self.storage.setdefault(name, {})
+
+    def get_item(self, key: str, *args: Any) -> Any:  # ruff: ignore[any-type]
+        """Return stored value, default or raise like the original.
+
+        Returns:
+            Stored value or default.
+
+        Raises:
+            ValueError: When missing and no default is given.
+
+        """
+        if key in self._items:
+            return self._items[key]
+        if args:
+            return args[0]
+        msg = f"Item {key} not found"
+        raise ValueError(msg)
+
+    def set_item(self, key: str, value: str) -> None:
+        """Store value."""
+        self._items[key] = value
+
+    def delete_item(self, key: str) -> None:
+        """Delete value."""
+        self._items.pop(key, None)
+
+
+def _register_ayon_core_stub() -> None:
+    """Register minimal ``ayon_core.lib`` when ``ayon_core`` is missing."""
+    try:
+        import ayon_core.lib  # ruff: ignore[unused-import]
+    except ImportError:
+        import logging
+
+        core = types.ModuleType("ayon_core")
+        core.__path__ = []
+        core_lib = types.ModuleType("ayon_core.lib")
+        core_lib.AYONSecureRegistry = FakeSecureRegistry
+        core_lib.Logger = types.SimpleNamespace(get_logger=logging.getLogger)
+        core.lib = core_lib
+        sys.modules["ayon_core"] = core
+        sys.modules["ayon_core.lib"] = core_lib
+
+
+@pytest.fixture
+def p4lib(fake_p4: FakeP4) -> types.ModuleType:  # ruff: ignore[unused-function-argument]
+    """Import ``ayon_perforce.lib`` with faked p4 and secure registry.
+
+    Returns:
+        The ``ayon_perforce.lib`` module.
+
+    """
+    _register_ayon_core_stub()
+    from ayon_perforce import lib
+
+    FakeSecureRegistry.storage.clear()
+    return lib
+
+
+# ---------------------------------------------------------------------------
+# live server
+# ---------------------------------------------------------------------------
+ENV_FILE = Path(__file__).with_name(".env")
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    """Parse simple ``KEY=value`` lines, ``#`` comments are skipped.
+
+    Returns:
+        Parsed variables.
+
+    """
+    result: dict[str, str] = {}
+    if not path.is_file():
+        return result
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        result[key.strip()] = value.strip().strip("'\"")
+    return result
+
+
+@pytest.fixture(scope="session")
+def live_env() -> Iterator[dict[str, str]]:
+    """Connection to the live server from ``tests/.env`` or environment.
+
+    Variables from the file don't override the environment. They are
+    exported only for the live session and restored afterwards.
+
+    Yields:
+        Effective p4 variables.
+
+    """
+    import os
+    import shutil
+
+    if not shutil.which("p4"):
+        pytest.skip("'p4' executable is not on PATH")
+    added = {
+        key: value
+        for key, value in _read_env_file(ENV_FILE).items()
+        if key not in os.environ
+    }
+    os.environ.update(added)
+    try:
+        if not os.environ.get("P4PORT"):
+            pytest.skip(f"P4PORT is not set (environment or {ENV_FILE})")
+        yield {
+            key: os.environ[key]
+            for key in ("P4PORT", "P4USER", "P4CLIENT", "P4PASSWD")
+            if os.environ.get(key)
+        }
+    finally:
+        for key in added:
+            os.environ.pop(key, None)

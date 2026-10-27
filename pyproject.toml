@@ -147,7 +147,11 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 log_cli = true
 log_cli_level = "INFO"
-addopts = "-ra -q"
+# live server tests run only when selected: `pytest -m live`
+addopts = "-ra -q -m 'not live'"
+markers = [
+    "live: read-only tests against a real Perforce server, connection is read from `tests/.env` or the environment",
+]
 
 [tool.ty.environment]
 extra-paths = [
