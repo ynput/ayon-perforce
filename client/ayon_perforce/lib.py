@@ -409,10 +409,10 @@ def save_local_login(username: str, password: str) -> None:
 
 def clear_local_login() -> None:
     """Clear the Perforce Login entry from the local registry."""
-    reg = AYONSecureRegistry("perforce/user")
+    reg = AYONSecureRegistry("perforce/username")
     if reg.get_item("value", None) is not None:
         reg.delete_item("value")
-    reg = AYONSecureRegistry("perforce/pass")
+    reg = AYONSecureRegistry("perforce/password")
     if reg.get_item("value", None) is not None:
         reg.delete_item("value")
     environ["P4USER"] = ""
