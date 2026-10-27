@@ -5,7 +5,7 @@ import os
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from ayon_core.addon import AYONAddon, IPluginPaths, ITrayService
 from ayon_core.lib import StringTemplate, ayon_info, is_headless_mode_enabled
@@ -61,7 +61,7 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
         project_name: str,
         folder_entity: dict[str, Any],
         task_entity: dict[str, Any],
-        project_settings: Optional[dict[str, Any]] = None,
+        project_settings: dict[str, Any] | None = None,
     ) -> ConnectionInfo:
         """Get connection information for Perforce.
 
@@ -105,7 +105,7 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
         )
 
     def get_server_url(
-            self, project_settings: Optional[dict[str, Any]] = None) -> str:
+            self, project_settings: dict[str, Any] | None = None) -> str:
         """Get Perforce server URL.
 
         Returns:

@@ -32,7 +32,7 @@ from ayon_perforce.api.models import (
     perforce_timestamp_to_datetime,
 )
 
-UTC = datetime.timezone.utc
+UTC = datetime.UTC
 
 
 # ---------------------------------------------------------------------------

@@ -20,12 +20,12 @@ import pathlib
 import re
 import shlex
 import types
+from collections.abc import Callable
 from dataclasses import MISSING, dataclass, field, fields
 from enum import Enum
 from logging import getLogger
 from typing import (
     Any,
-    Callable,
     Literal,
     NamedTuple,
     TypeVar,
@@ -89,7 +89,7 @@ def perforce_date_to_datetime(string: str) -> datetime.datetime:
         datetime.datetime with UTC timezone.
 
     """
-    utc = datetime.timezone.utc
+    utc = datetime.UTC
     return datetime.datetime.strptime(string, PERFORCE_DATE_FORMAT).replace(
         tzinfo=utc
     )
@@ -105,7 +105,7 @@ def perforce_timestamp_to_datetime(time: str) -> datetime.datetime:
         datetime.datetime with UTC timezone.
 
     """
-    return datetime.datetime.fromtimestamp(int(time), tz=datetime.timezone.utc)
+    return datetime.datetime.fromtimestamp(int(time), tz=datetime.UTC)
 
 
 def perforce_datetime_to_timestamp(date: datetime.datetime) -> str:
@@ -365,18 +365,9 @@ def _enable_alias_kwargs(cls: type[R]) -> type[R]:
         Modified class.
 
     """
-    try:
-        type_hints = get_type_hints(cls)
-    except NameError:
-        # This can happen if the dataclass has forward references.
-        # In that case, we can't do any type checking,
-        # so just return the class.
-        return cls
-    except TypeError:
-        # This can happen in older versions of Python
-        # when the typing module is not fully supported. In that case,
-        # we can't do any type checking, so just return the class.
-        return cls
+    # Must not fail silently, models without the alias constructor can't
+    # be created from p4 records. Requires Python 3.11 (Unreal 5.4+).
+    type_hints = get_type_hints(cls)
     data_fields = fields(cls)  # type: ignore[arg-type]
     alias_to_name = {
         alias: data_field.name

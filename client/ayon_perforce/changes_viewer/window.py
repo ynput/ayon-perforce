@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import sys
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from ayon_core import style
 from ayon_core.tools.utils.lib import qt_app_context
@@ -25,9 +25,9 @@ class ChangesWindows(QtWidgets.QDialog):
     """Changes Viewer Window."""
     def __init__(
             self,
-            controller: Optional[ChangesViewerController] = None,
-            parent: Optional[QtWidgets.QtWidget] = None,
-            launch_data: Optional[LaunchData] = None):
+            controller: ChangesViewerController | None = None,
+            parent: QtWidgets.QtWidget | None = None,
+            launch_data: LaunchData | None = None):
         """Initialize ChangesWindows."""
         super().__init__(parent=parent)
         self.setWindowTitle("Changes Viewer")
@@ -61,7 +61,7 @@ class ChangesWindows(QtWidgets.QDialog):
             self._details_widget.reset()
 
 
-def show(parent: Optional[QtWidgets.QtWidget] = None) -> None:
+def show(parent: QtWidgets.QtWidget | None = None) -> None:
     """Display Change Viewer GUI.
 
     Args:

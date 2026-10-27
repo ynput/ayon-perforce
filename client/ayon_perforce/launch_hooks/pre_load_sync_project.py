@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import asdict
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar
 
 from ayon_applications import (
     LaunchTypes,
@@ -116,7 +116,7 @@ class SyncUnrealProject(PreLaunchHook):
 
         return project_files[0]
 
-    def _get_enabled_perforce_addon(self) -> Optional[PerforceAddon]:
+    def _get_enabled_perforce_addon(self) -> PerforceAddon | None:
         if is_perforce_enabled(self.data["project_settings"]):
             manager = AddonsManager()
             return manager["perforce"]

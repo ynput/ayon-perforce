@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from typing import Callable
+from typing import TYPE_CHECKING
 
 import p4_records as rec
 import pytest
@@ -26,6 +26,9 @@ from ayon_perforce.api.models import (
     Sync,
     User,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _INDEX_RE = re.compile(r"\d+(,\d+)?$")
 _FILELOG_RE = re.compile(r"([a-zA-Z]+)([0-9]+)(?:,([0-9]+))?")

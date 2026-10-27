@@ -105,6 +105,10 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
         depot_name = depot_tmpl.format_strict(tmpl_data)
         self.log.info("%s", depot_name)
 
+        # Unreal needs writable files, p4 makes synced files read-only
+        ws_options = proj_setts["perforce"]["workspace"].get(
+            "options", ["allwrite", "clobber", "rmdir"])
+
         is_remote_run = self.launch_context.launch_type != LaunchTypes.local
         try:
             req_ws = P4Workspace(
@@ -114,7 +118,7 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
                 owner=owner,
                 depot=depot_name,
                 host=workstation_info["hostname"],
-                options=["rmdir"]
+                options=list(ws_options),
             )
             self.log.info("%s", req_ws)
             # on farm `PerforcePreLaunchFarmHook` syncs to the job changelist

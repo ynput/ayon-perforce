@@ -9,7 +9,7 @@ Provides:
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pyblish.api
 from ayon_core.lib import get_local_site_id
@@ -76,7 +76,7 @@ class CollectPerforceLogin(pyblish.api.ContextPlugin):
         perforce_addon: PerforceAddon,
         project_settings: dict[str, Any],
         context: pyblish.api.Context
-    ) -> Optional[ConnectionInfo]:
+    ) -> ConnectionInfo | None:
         """Gets and check credentials for Perforce.
 
         Args:

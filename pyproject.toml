@@ -74,8 +74,8 @@ line-length = 79
 indent-width = 4
 
 
-# Assume Python 3.9
-target-version = "py39"
+# Python of Unreal 5.4+
+target-version = "py311"
 
 [tool.ruff.lint]
 preview = true
@@ -89,10 +89,6 @@ ignore = [
     "subprocess-without-shell-equals-true",
     "commented-out-code",
     "raise-vanilla-args",
-    "non-pep585-annotation",   # support for older python version (type vs. Type)
-    "non-pep604-annotation-union",   # ..^
-    "deprecated-import",   # ..
-    "non-pep604-annotation-optional",   # Use `X | None` for type annotations
     "unused-method-argument",
     "implicit-namespace-package",  # add `__init__.py` to namespaced package
     "line-contains-todo",  # FIX all TODOs
@@ -141,6 +137,7 @@ quiet-level = 3
 
 [tool.mypy]
 mypy_path = "$MYPY_CONFIG_FILE_DIR/client"
+python_version = "3.11"
 
 [build-system]
 requires = ["hatchling"]

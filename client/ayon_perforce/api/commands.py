@@ -14,7 +14,7 @@ import re
 import shutil
 import subprocess
 from logging import getLogger
-from typing import TYPE_CHECKING, Iterator, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from ayon_perforce.api.exceptions import (
     ChangeUnknownError,
@@ -43,6 +43,7 @@ from ayon_perforce.api.models import (
 
 if TYPE_CHECKING:
     import pathlib
+    from collections.abc import Iterator
 
 
 log = getLogger(__name__)

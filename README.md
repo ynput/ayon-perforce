@@ -30,7 +30,7 @@ Perforce settings are defined in the server-side addon configuration and include
 - `enabled`: enable or disable the Perforce addon per project
 - `host_name`: Perforce server host name
 - `port`: Perforce server port
-- `workspace`: workspace name and depot templates
+- `workspace`: workspace name and depot templates, options of created workspaces (default `allwrite clobber rmdir`, Unreal can't save the project into read-only files)
 - `stream`: optional stream-based workspace configuration
 - `publish`: profiles that decide when published products should be tracked in Perforce
 
@@ -40,6 +40,7 @@ The default workspace template is generated from AYON project context, and the a
 
 Before using the addon, make sure:
 
+- Unreal Engine 5.4 or newer is used (the addon requires Python 3.11)
 - the `p4` binary is installed and available on `PATH`
 - the Perforce server is reachable from the workstation or render node
 - the user is authenticated to the server

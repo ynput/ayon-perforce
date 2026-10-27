@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from qtpy import QtCore, QtGui
 
@@ -65,7 +65,7 @@ class ChangesModel(QtGui.QStandardItemModel):
             self.appendRow([number_item, desc_item, author_item, date_item])
 
     def data(self, index: QtCore.QModelIndex,
-             role: Optional[int] = QtGui.Qt.DisplayRole
+             role: int | None = QtGui.Qt.DisplayRole
     ) -> Any:  # ruff: ignore[any-type]
         """Return data for the index.
 

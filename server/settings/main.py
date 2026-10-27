@@ -81,6 +81,17 @@ class StreamModel(BaseSettingsModel):
     )
 
 
+def _client_options_enum() -> list[dict[str, str]]:
+    return [
+        {"value": "allwrite", "label": "allwrite - files are writable"},
+        {"value": "clobber", "label": "clobber - sync overwrites writable"},
+        {"value": "compress", "label": "compress - compress data"},
+        {"value": "locked", "label": "locked - only owner can change spec"},
+        {"value": "modtime", "label": "modtime - keep submit time"},
+        {"value": "rmdir", "label": "rmdir - remove empty directories"},
+    ]
+
+
 class WorkspaceModel(BaseSettingsModel):
     """Workspace settings."""
 
@@ -91,6 +102,17 @@ class WorkspaceModel(BaseSettingsModel):
     template: str = Field(
         "",
         title="Workspace Name Template"
+    )
+    options: list[str] = Field(
+        default_factory=lambda: ["allwrite", "clobber", "rmdir"],
+        enum_resolver=_client_options_enum,
+        title="Workspace Options",
+        description=(
+            "Options of workspaces created or updated by AYON, unset "
+            "options are disabled. Unreal needs 'allwrite' to write to "
+            "the project, and 'allwrite' needs 'clobber', otherwise sync "
+            "fails on writable files."
+        ),
     )
 
 
@@ -135,7 +157,8 @@ DEFAULT_VALUES = {
   "port": 1666,
   "workspace": {
     "depot": "{project[code]}",
-    "template": "{workstation[hostname]}_{workstation[system_name]}_{project[code]}"  # ruff: ignore[line-too-long]
+    "template": "{workstation[hostname]}_{workstation[system_name]}_{project[code]}",  # ruff: ignore[line-too-long]
+    "options": ["allwrite", "clobber", "rmdir"]
   },
   "auto_submit_data_files": True,
   "stream": {

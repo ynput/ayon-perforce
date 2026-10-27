@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING
 
 from ayon_core.addon import AddonsManager
 from ayon_core.lib.events import QueuedEventSystem
@@ -11,6 +11,8 @@ from ayon_core.pipeline import registered_host
 from ayon_perforce.api.commands import P4Commands
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ayon_core.host import HostBase
 
     from ayon_perforce.addon import ConnectionInfo, LaunchData, PerforceAddon
@@ -23,7 +25,7 @@ class ChangesViewerController:
     """
 
     def __init__(
-            self, launch_data: LaunchData, host: Optional[HostBase] = None):
+            self, launch_data: LaunchData, host: HostBase | None = None):
         """Initialize ChangesViewerController."""
         if host is None:
             host = registered_host()
@@ -47,8 +49,8 @@ class ChangesViewerController:
 
     def emit_event(
             self, topic: str,
-            data: Optional[dict] = None,
-            source: Optional[str] = None) -> None:
+            data: dict | None = None,
+            source: str | None = None) -> None:
         """Emit event."""
         if data is None:
             data = {}
