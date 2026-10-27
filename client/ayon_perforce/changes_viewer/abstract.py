@@ -34,7 +34,7 @@ class ChangeListItem:
         }
 
     @classmethod
-    def from_data(cls, data) -> ChangeListItem:
+    def from_data(cls, data: dict) -> ChangeListItem:
         """Create instance from data.
 
         Args:

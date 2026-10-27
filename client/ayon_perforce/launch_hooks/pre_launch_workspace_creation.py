@@ -1,6 +1,7 @@
+"""Pre-launch hook creating the Perforce workspace for the context."""
 from copy import deepcopy
-from typing import ClassVar, Optional
 from pathlib import Path
+from typing import ClassVar
 
 from ayon_applications import (
     LaunchTypes,
@@ -9,7 +10,6 @@ from ayon_applications import (
 from ayon_core.lib import StringTemplate, ayon_info
 from ayon_core.pipeline import Anatomy
 from ayon_core.pipeline.template_data import get_template_data_with_names
-
 from ayon_perforce.lib import P4Workspace, get_local_login
 
 
@@ -23,12 +23,18 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
     }
     order = -5.2
 
-    def execute(self) -> None:
-        """Handle Auto Workspace Creation on any machine."""
+    def execute(self) -> None:  # noqa: PLR0914 - existing hook logic
+        """Handle Auto Workspace Creation on any machine.
+
+        Raises:
+            RuntimeError: If the task type has no stream profile or the
+                workspace could not be switched to.
+
+        """
         env = deepcopy(self.data["env"])
-        if publish_job := env.get("AYON_PUBLISH_JOB"):
-            if int(publish_job) > 0:
-                return
+        publish_job = env.get("AYON_PUBLISH_JOB")
+        if publish_job and int(publish_job) > 0:
+            return
 
         # project data
         proj = self.data["project_entity"]
@@ -57,7 +63,7 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
         ws_tmpl = proj_setts["perforce"]["workspace"]["template"]
         ws_tmpl = StringTemplate(ws_tmpl)
         ws_name = ws_tmpl.format_strict(tmpl_data)
-        self.log.info(f"{ws_name = }")
+        self.log.info("ws_name = %r", ws_name)
 
         # workspace root template
         # "file": "{project[code]}.{ext}",
@@ -67,7 +73,7 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
         ws_root_dir /= ws_root_file  # ue always creates a subdir for a project
         ws_root_tmpl = StringTemplate(ws_root_dir.as_posix())
         ws_root = Path(ws_root_tmpl.format_strict(tmpl_data)).as_posix()
-        self.log.info(f"{ws_root = }")
+        self.log.info("ws_root = %r", ws_root)
 
         # stream template
         strm_tmpl: StringTemplate = None
@@ -80,13 +86,13 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
             )
             raise RuntimeError(errmsg)
         strm_name = strm_tmpl.format_strict(tmpl_data)
-        self.log.info(f"{strm_name = }")
+        self.log.info("strm_name = %r", strm_name)
 
         # depot template
         depot_tmpl = proj_setts["perforce"]["workspace"]["depot"]
         depot_tmpl = StringTemplate(depot_tmpl)
         depot_name = depot_tmpl.format_strict(tmpl_data)
-        self.log.info(f"{depot_name = }")
+        self.log.info("depot_name = %r", depot_name)
 
         is_remote_run = self.launch_context.launch_type != LaunchTypes.local
         try:
@@ -99,13 +105,14 @@ class PerforceWorkspaceCreationHook(PreLaunchHook):
                 host=workstation_info["hostname"],
                 options=["rmdir"]
             )
-            self.log.info(f"{req_ws = }")
+            self.log.info("req_ws = %r", req_ws)
             req_ws.switch(force=is_remote_run)
         except Exception as err:
             errmsg = f"Failed to checkout workspace. {err}"
             raise RuntimeError(errmsg) from err
 
-        # api: assuming username is used in template we can make username optional
+        # api: assuming username is used in template we can make username
+        #   optional
 
         # api: call_command from ayon
         # create if necessary

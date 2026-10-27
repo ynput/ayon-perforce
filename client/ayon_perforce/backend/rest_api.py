@@ -29,98 +29,27 @@ class PerforceModuleRestAPI:
 
     def register(self) -> None:
         """Register all REST API routes."""
-        login = rest_routes.LoginEndpoint()
-        self.server_manager.add_route(
-            "POST", f"{self.prefix}/login", login.dispatch)
-
-        is_in_any_workspace = rest_routes.IsPathInAnyWorkspace()
-        self.server_manager.add_route(
-            "POST",
-            f"{self.prefix}/is_in_any_workspace",
-            is_in_any_workspace.dispatch,
+        endpoints = (
+            ("login", rest_routes.LoginEndpoint),
+            ("is_in_any_workspace", rest_routes.IsPathInAnyWorkspace),
+            ("add", rest_routes.AddEndpoint),
+            ("sync_latest_version", rest_routes.SyncLatestEndpoint),
+            ("sync_to_version", rest_routes.SyncVersionEndpoint),
+            ("checkout", rest_routes.CheckoutEndpoint),
+            ("is_checkouted", rest_routes.IsCheckoutedEndpoint),
+            ("revert", rest_routes.Revert),
+            ("get_changes", rest_routes.GetChanges),
+            ("get_uncommitted_changes", rest_routes.GetUncommittedChanges),
+            ("get_last_change_list", rest_routes.GetLastChangelist),
+            ("submit_change_list", rest_routes.SubmitChangelist),
+            ("submit_default_changelist",
+             rest_routes.SubmitDefaultChangelist),
+            ("exists_on_server", rest_routes.ExistsOnServer),
+            ("get_stream", rest_routes.GetStreamEndpoint),
+            ("get_workspace_dir", rest_routes.GetWorkspaceDirEndpoint),
         )
-
-        add_file = rest_routes.AddEndpoint()
-        self.server_manager.add_route(
-            "POST", f"{self.prefix}/add", add_file.dispatch)
-
-        sync_latest_version = rest_routes.SyncLatestEndpoint()
-        self.server_manager.add_route(
-            "POST",
-            f"{self.prefix}/sync_latest_version",
-            sync_latest_version.dispatch,
-        )
-
-        sync_to_version = rest_routes.SyncVersionEndpoint()
-        self.server_manager.add_route(
-            "POST", f"{self.prefix}/sync_to_version", sync_to_version.dispatch
-        )
-
-        checkout = rest_routes.CheckoutEndpoint()
-        self.server_manager.add_route(
-            "POST", f"{self.prefix}/checkout", checkout.dispatch
-        )
-
-        is_checkouted = rest_routes.IsCheckoutedEndpoint()
-        self.server_manager.add_route(
-            "POST", f"{self.prefix}/is_checkouted", is_checkouted.dispatch
-        )
-
-        revert = rest_routes.Revert()
-        self.server_manager.add_route(
-            "POST",
-            self.prefix + "/revert",
-            revert.dispatch
-        )
-
-        get_changes = rest_routes.GetChanges()
-        self.server_manager.add_route(
-            "POST", f"{self.prefix}/get_changes", get_changes.dispatch
-        )
-
-        get_uncommitted_changes = rest_routes.GetUncommittedChanges()
-        self.server_manager.add_route(
-            "POST",
-            self.prefix + "/get_uncommitted_changes",
-            get_uncommitted_changes.dispatch
-        )
-
-        get_last_change_list = rest_routes.GetLastChangelist()
-        self.server_manager.add_route(
-            "POST",
-            f"{self.prefix}/get_last_change_list",
-            get_last_change_list.dispatch,
-        )
-
-        submit_change_list = rest_routes.SubmitChangelist()
-        self.server_manager.add_route(
-            "POST",
-            f"{self.prefix}/submit_change_list",
-            submit_change_list.dispatch,
-        )
-
-        submit_default_changelist = rest_routes.SubmitDefaultChangelist()
-        self.server_manager.add_route(
-            "POST",
-            self.prefix + "/submit_default_changelist",
-            submit_default_changelist.dispatch
-        )
-
-        exists_on_server = rest_routes.ExistsOnServer()
-        self.server_manager.add_route(
-            "POST",
-            f"{self.prefix}/exists_on_server",
-            exists_on_server.dispatch
-        )
-
-        get_stream = rest_routes.GetStreamEndpoint()
-        self.server_manager.add_route(
-            "POST", f"{self.prefix}/get_stream", get_stream.dispatch
-        )
-
-        get_workspace_dir = rest_routes.GetWorkspaceDirEndpoint()
-        self.server_manager.add_route(
-            "POST",
-            f"{self.prefix}/get_workspace_dir",
-            get_workspace_dir.dispatch
-        )
+        for route, endpoint_cls in endpoints:
+            endpoint = endpoint_cls()
+            self.server_manager.add_route(
+                "POST", f"{self.prefix}/{route}", endpoint.dispatch
+            )

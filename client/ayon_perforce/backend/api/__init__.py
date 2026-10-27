@@ -17,7 +17,7 @@ import pathlib
 import socket
 import sys
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from functools import lru_cache
 from types import MethodType
 from typing import (
@@ -26,17 +26,17 @@ from typing import (
     Dict,
     Generator,
     Iterable,
+    Iterator,
     List,
     NewType,
     Optional,
     Sequence,
     Tuple,
     Union,
+    cast,
 )
 
 import P4
-from qtpy import QtCore
-from typing_extensions import Literal
 
 from . import p4_errors
 
@@ -64,20 +64,52 @@ def make_tuple_if_not(value: Any) -> tuple[Any]:  # noqa: ANN401
     return value if isinstance(value, (tuple, list)) else (value, )
 
 
-class E_RunOutput(enum.Enum):
+def _naive_local_datetime(timestamp: float) -> datetime.datetime:
+    """Convert a timestamp to a naive datetime in local time.
+
+    Equivalent to `datetime.datetime.fromtimestamp(timestamp)`.
+
+    Args:
+        timestamp: POSIX timestamp.
+
+    Returns:
+        The naive local datetime.
+
+    """
+    return datetime.datetime.fromtimestamp(
+        timestamp, tz=datetime.timezone.utc
+    ).astimezone().replace(tzinfo=None)
+
+
+class ERunOutput(enum.Enum):
+    """Possible outcomes of running a command."""
+
     success = 0
     fail = 1
 
 
+# Backwards compatible alias of the original public name.
+E_RunOutput = ERunOutput
+
+
 @dataclasses.dataclass(frozen=False)
 class P4PathDateData:
+    """A path together with its modification date."""
+
     path: pathlib.Path | None = None
     date: datetime.datetime | None = None
 
     def set_data(
         self, path: pathlib.Path | None,
         date: datetime.datetime | None
-    ):
+    ) -> None:
+        """Set the path and the date.
+
+        Args:
+            path: Local path of the file.
+            date: Modification date of the file.
+
+        """
         self.path = path
         self.date = date
 
@@ -96,7 +128,7 @@ class P4ConnectionManager:
     which require a p4 connection.
     Any attribute that both has `_connect_` as a prefix
     and is a method, will lazily wrap said method with
-    `__run_connect__` and remove the `_connect_` prefix.
+    `_run_connect` and remove the `_connect_` prefix.
 
     For example: `_connect_sync` will be accessed with `sync`.
 
@@ -106,8 +138,8 @@ class P4ConnectionManager:
     - wrapping of methods is handled lazily, thus is performant.
     - reduced verbosity of calling core method names.
 
-    The `__run_connect__` wrapper works in conjunction with the
-    `__connect__` context manager to automatically manage the
+    The `_run_connect` wrapper works in conjunction with the
+    `_p4_connection` context manager to automatically manage the
     p4.connect and p4.disconnect functionality.
     This is especially useful for nested `_connect_`
     method calls, as P4Python throws an exception if
@@ -117,7 +149,7 @@ class P4ConnectionManager:
     # *** Any method that requires a connection to p4,
     # must be declared with the prefix: `_connect_` ***
 
-    The `__run_connect__` wrapper will also handle workspaces by
+    The `_run_connect` wrapper will also handle workspaces by
     attempting to run the given function in each workspace, returning
     as soon as the function runs successfully.
     The first workspace used will initially be the current workspace
@@ -133,13 +165,24 @@ class P4ConnectionManager:
     # Magic Methods:
     def __init__(
         self,
-        use_progress_hander: bool = False,
+        use_progress_hander: bool = False,  # noqa: FBT001, FBT002 public API
         started_fn: Callable[[str, int], None] | None = None,
         total_set_fn: Callable[[int], None] | None = None,
         updated_fn: Callable[[int], None] | None = None,
         completed_fn: Callable[[str, int], None] | None = None
-    ):
+    ) -> None:
+        """Initialize the connection manager.
 
+        The progress arguments are currently not used.
+
+        Args:
+            use_progress_hander: Whether to use a progress handler.
+            started_fn: Called when an operation starts.
+            total_set_fn: Called when the total amount of work is known.
+            updated_fn: Called when the progress is updated.
+            completed_fn: Called when an operation completes.
+
+        """
         super().__init__()
 
         self._p4 = None
@@ -160,17 +203,16 @@ class P4ConnectionManager:
         self.__clients_cache__: dict[str, dict[str, Any]] | None = None
         self._workspace_errors: set[str] = set()
 
-    def __getattribute__(self, attribute_name) -> Any:
-        """
-        This is a custom handler for attribute access.
+    def __getattribute__(self, attribute_name: str) -> Any:  # noqa: ANN401
+        """This is a custom handler for attribute access.
 
         It allows methods that need wrapping with
-        `__run_connect__` to be wrapped when first called.
-        The alternative was for `__run_connect__` to exist
+        `_run_connect` to be wrapped when first called.
+        The alternative was for `_run_connect` to exist
         outside of P4ConnectionManager, which seemed janky.
 
         A method with the prefix `_connect_` will be wrapped
-        with `__run_connect__` when first called and then assigned
+        with `_run_connect` when first called and then assigned
         back to the instance without the `_connect_` prefix.
         This provides lazy creation and exposure of core methods.
         For example:
@@ -188,58 +230,75 @@ class P4ConnectionManager:
         This avoids unneccesary connection checks, providing a slight
         performance boost. I.E:
         `self._connect_checkout` rather than `self.checkout`
+
+        Args:
+            attribute_name: Name of the attribute to access.
+
+        Returns:
+            The attribute, wrapped with `_run_connect` if it is
+                a `_connect_` method.
+
+        Raises:
+            AttributeError: If neither the attribute nor its `_connect_`
+                variant exists.
+
         """
         try:
-            attribute = object.__getattribute__(self, attribute_name)
-            return attribute
+            return object.__getattribute__(self, attribute_name)
 
         except AttributeError:
             attribute_name = f"_connect_{attribute_name}"
             try:
                 attribute = object.__getattribute__(self, attribute_name)
                 if isinstance(attribute, MethodType):
-                    __run_connect__ = object.__getattribute__(
-                        self, "__run_connect__")
-                    attribute = __run_connect__(attribute)
+                    run_connect = object.__getattribute__(
+                        self, "_run_connect")
+                    attribute = run_connect(attribute)
                     object.__setattr__(
                         self,
                         attribute_name.replace("_connect_", ""),
                         attribute
                     )
 
-                return attribute
-
-            except AttributeError:
-                _attribute_name = attribute_name.replace("_connect_", "")
+            except AttributeError as error:
+                public_name = attribute_name.replace("_connect_", "")
                 class_name = (
                     object.__getattribute__(self, "__class__").__name__
                 )
-                raise AttributeError(
-                    f"{class_name} has no attribute: {_attribute_name}")
+                msg = f"{class_name} has no attribute: {public_name}"
+                raise AttributeError(msg) from error
+
+            else:
+                return attribute
 
     # Properties:
     @property
     def p4(self) -> P4.P4:
+        """P4.P4: The P4Python instance, created on first access."""
         if self._p4 is None:
             self._p4 = P4.P4()
         return self._p4
 
     @property
     def host_name(self) -> str:
+        """str: Name of this machine."""
         if not self._host_name:
             self._host_name = socket.gethostname()
         return self._host_name
 
     @property
-    def exceptions(self):
+    def exceptions(self) -> type[p4_errors.P4Exceptions]:
+        """type[P4Exceptions]: Namespace of the Perforce exceptions."""
         return p4_errors.P4Exceptions
 
     @property
-    def is_offline(self):
+    def is_offline(self) -> bool:
+        """bool: Whether the manager is running in offline mode."""
         return self._is_offline
 
     @property
-    def offline_manager(self):
+    def offline_manager(self) -> Any:  # noqa: ANN401 not implemented yet
+        """Any: Manager for offline commands, currently always None."""
         if self._offline_manager is None:
             pass
             # self._offline_manager = p4_offline.P4ConnectionManager()
@@ -258,7 +317,7 @@ class P4ConnectionManager:
         return self.__clients_cache__
 
     @property
-    def _workspace_cache(self):
+    def _workspace_cache(self) -> list[str]:
         if not self.__workspace_cache__:
             self.__workspace_cache__ = self._connect_get_workspaces()
 
@@ -266,16 +325,19 @@ class P4ConnectionManager:
 
     # Protected Methods:
     @contextmanager
-    def __connect__(self) -> Generator[P4.P4 | None, None, None]:
-        """
-        Context manager that connects to if not already connected p4,
-        yielding the instance of p4 and closing the connection when done.
-        """
+    def _p4_connection(self) -> Generator[P4.P4 | None, None, None]:
+        """Connect to p4 if not already connected.
 
-        if self._is_offline:
-            if not self._retry_p4_connection:
-                yield
-                return
+        Yields the instance of p4 and closes the connection when done.
+
+        Yields:
+            The P4 instance, or None when offline or the server
+                cannot be reached.
+
+        """
+        if self._is_offline and not self._retry_p4_connection:
+            yield
+            return
 
         if not self.p4.connected():
             try:
@@ -302,9 +364,10 @@ class P4ConnectionManager:
             self.p4.disconnect()
             self._clear_errors()
 
-    def __run_connect__(self, function) -> Callable[..., Any]:
-        """
-        Decorator that connects to p4 before running a function.
+    def _run_connect(
+        self, function: Callable[..., Any]
+    ) -> Callable[..., Any]:
+        """Decorator that connects to p4 before running a function.
 
         This is syntactic sugar to try and reduce indentation
         in a function body.
@@ -318,10 +381,20 @@ class P4ConnectionManager:
 
         The intention is for this to work with P4ConnectionManager,
         it will not work with standard functions.
+
+        Args:
+            function: The `_connect_` method to wrap.
+
+        Returns:
+            The wrapped function.
+
         """
 
         @functools.wraps(function)
-        def _connect(*args, **kwargs) -> Any:
+        def _connect(
+            *args: Any,  # noqa: ANN401 wraps arbitrary p4 methods
+            **kwargs: Any,  # noqa: ANN401
+        ) -> Any:  # noqa: ANN401
             workspace_override = None
             args_info = (
                 self._get_path_arg_info(function, args)
@@ -332,23 +405,27 @@ class P4ConnectionManager:
             paths, args, kwargs, workspace_override = (
                 self._split_args(paths, args, kwargs))
 
-            with self.__connect__():
+            with self._p4_connection():
                 if self._is_offline:
-                    self.__run_function_offline__(
-                        function, paths, compile_result, args, kwargs
+                    self._run_function_offline(
+                        function,
+                        paths,
+                        compile_result=compile_result,
+                        args=args,
+                        kwargs=kwargs,
                     )
                 else:
                     self._update_workspace_cache(
                         workspace_override or self.p4.client)
                     for workspace in self._workspace_cache:
                         with self.workspace_as(workspace):
-                            self.__run_function__(
+                            self._run_function(
                                 function,
                                 paths,
                                 workspace,
-                                compile_result,
-                                args,
-                                kwargs
+                                compile_result=compile_result,
+                                args=args,
+                                kwargs=kwargs
                             )
                             if self._break_run_loop:
                                 break
@@ -356,29 +433,30 @@ class P4ConnectionManager:
             if compile_result:
                 return self.result
 
-            _result = self.result
-            if not _result:
-                return _result
+            run_result = self.result
+            if not run_result:
+                return run_result
 
-            if isinstance(_result, dict):
-                _result = tuple(_result.values())
+            if isinstance(run_result, dict):
+                run_result = tuple(run_result.values())
 
-            if isinstance(_result, (list, tuple)) and len(_result) == 1:
-                return _result[0]
+            if isinstance(run_result, (list, tuple)) and len(run_result) == 1:
+                return run_result[0]
 
-            return _result
+            return run_result
 
         return _connect
 
-    def __run_function__(
+    def _run_function(  # noqa: PLR0913 existing signature
         self,
         function: Callable[..., Any],
         paths: tuple[str, ...],
-        workspace:str,
-        compile_result:bool,
+        workspace: str,
+        *,
+        compile_result: bool,
         args: tuple[Any],
         kwargs: dict[str, Any]
-    ):
+    ) -> None:
         self.result = None
         self._break_run_loop = False
         self._run_successfully = False
@@ -389,12 +467,21 @@ class P4ConnectionManager:
             is_get_stat = function == self._connect_get_stat
             result = function(*args, **kwargs)  # type: Any
             if is_get_stat:
-                result = (result, ) if paths and len(paths) == 1 and paths[0].endswith("...") else result
-            self.result = self._compile_result(compile_result, paths, result)
+                result = (
+                    (result, )
+                    if (
+                        paths
+                        and len(paths) == 1
+                        and paths[0].endswith("...")
+                    )
+                    else result
+                )
+            self.result = self._compile_result(
+                compile_result=compile_result, paths=paths, result=result
+            )
             self._run_successfully = True
             self._break_run_loop = True
             self._update_workspace_cache(workspace)
-            return
 
         except p4_errors.P4PathDoesNotExistError as error:
             self._path_existence_errors.add(str(error))
@@ -405,7 +492,8 @@ class P4ConnectionManager:
             if "has no attribute" in str(error):
                 raise
 
-            raise AttributeError(f"P4.P4 has no attribute: '{error}' ")
+            msg = f"P4.P4 has no attribute: '{error}' "
+            raise AttributeError(msg) from error
 
         except Exception as error:
             if not self._is_p4_exception(error):
@@ -421,21 +509,24 @@ class P4ConnectionManager:
                 self._run_successfully = True
                 self._break_run_loop = True
                 return
-            print(str(error))
+            sys.stdout.write(f"{error}\n")
 
         return
 
-    def __run_function_offline__(
+    def _run_function_offline(
         self,
         function: Callable[..., Any],
         paths: tuple[str, ...],
-        compile_result:bool,
+        *,
+        compile_result: bool,
         args: tuple[Any],
         kwargs: dict[str, Any]
-    ):
+    ) -> None:
         self.result = None
         result = self.offline_manager.run_function(function, args, kwargs)
-        self.result = self._compile_result(compile_result, paths, result)
+        self.result = self._compile_result(
+            compile_result=compile_result, paths=paths, result=result
+        )
 
     # Private Methods:
     @staticmethod
@@ -444,12 +535,12 @@ class P4ConnectionManager:
             if isinstance(_path, str):
                 _path = pathlib.Path(_path).anchor.lower()
 
-            _path_anchor_lower = _path.anchor.lower()
+            path_anchor_lower = _path.anchor.lower()
             if (
-                not _path_anchor_lower[1:].startswith(":\\") and
-                not _path_anchor_lower.startswith("\\\\")
+                not path_anchor_lower[1:].startswith(":\\") and
+                not path_anchor_lower.startswith("\\\\")
             ):
-                print(f"Path is invalid: {_path}")
+                sys.stdout.write(f"Path is invalid: {_path}\n")
                 return False
 
             return True
@@ -460,35 +551,41 @@ class P4ConnectionManager:
             else (pathlib.Path(_path) for _path in _paths)
         )
 
-        valid_paths = [path for path in path_objects if _is_valid_path(path)]
-        return valid_paths
+        return [path for path in path_objects if _is_valid_path(path)]
 
     @staticmethod
     def _get_correct_p4_paths(
         _paths: list[pathlib.Path],
     ) -> tuple[str]:
-        """
-        Test if the path exists test if it is a file.
-            If the path doesn't exist and has an extension, then assume it is
-            a file. This is to try and figure out if the path is a folder
-            and append "/..." if so
-        """
+        """Convert paths to p4 paths, marking folders with `...`.
 
+        Test if the path exists test if it is a file.
+        If the path doesn't exist and has an extension, then assume it is
+        a file. This is to try and figure out if the path is a folder
+        and append "/..." if so.
+
+        Args:
+            _paths: Paths to convert.
+
+        Returns:
+            The p4 paths, folders ending with `...`.
+
+        """
         out_paths: list[str] = []
         for _path in _paths:
             # Already declared as a directory:
-            _path_str = str(_path)
-            if _path_str.endswith("\\..."):
-                out_paths.append(_path_str)
+            path_str = str(_path)
+            if path_str.endswith("\\..."):
+                out_paths.append(path_str)
                 continue
 
             # A depot path:
-            if _path_str.startswith("\\\\"):
+            if path_str.startswith("\\\\"):
                 if not _path.suffix:
-                    _path_str = f"{_path_str}\\..."
+                    path_str = f"{path_str}\\..."
 
-                _path_str = _path_str.replace("\\", "/")
-                out_paths.append(_path_str)
+                path_str = path_str.replace("\\", "/")
+                out_paths.append(path_str)
                 continue
 
             is_file = (
@@ -496,7 +593,7 @@ class P4ConnectionManager:
                 if _path.exists() and _path.is_file()
                 else _path.suffix
             )
-            out_paths.append(_path_str if is_file else f"{_path}\\...")
+            out_paths.append(path_str if is_file else f"{_path}\\...")
 
         return tuple(out_paths)
 
@@ -504,20 +601,22 @@ class P4ConnectionManager:
     def _is_file_checked_out_by_current_user(data: dict[str, Any]) -> bool:
         if "action" in data and data["action"] == "add":
             return True
-        if "action" in data and data["action"] == "edit":
-            return True
-
-        return False
+        return "action" in data and data["action"] == "edit"
 
     @staticmethod
-    def _compile_result(compile_result: bool, paths: Optional[Tuple[str]], result: Optional[Any]):
+    def _compile_result(
+        *,
+        compile_result: bool,
+        paths: Optional[Tuple[str]],
+        result: object,
+    ) -> object:
         if compile_result and paths and isinstance(result, col_abc.Iterable):
             result = {path.replace("\\...", ""): data
                       for path, data in zip(paths, result)}
 
         return result
 
-    def _get_clean_p4_paths(self, paths: Iterable[str]):
+    def _get_clean_p4_paths(self, paths: Iterable[str]) -> tuple[str]:
         valid_paths = self._get_valid_path_objects(paths)
         return self._get_correct_p4_paths(valid_paths)
 
@@ -525,19 +624,21 @@ class P4ConnectionManager:
             self,
             paths: tuple[str, ...],
             args: tuple[Any, ...],
-            kwargs:dict[str, Any]
-    ) -> tuple[tuple[str,...] | None, tuple[Any, ...], dict[str, Any], str | None]:
+            kwargs: dict[str, Any]
+    ) -> tuple[
+        tuple[str, ...] | None, tuple[Any, ...], dict[str, Any], str | None
+    ]:
         if paths:
             valid_paths = self._get_valid_path_objects(paths)
             paths = self._get_correct_p4_paths(valid_paths)
-            _args = list(args[1:])
-            _args.insert(0, paths)
-            args = tuple(_args)
+            args_list = list(args[1:])
+            args_list.insert(0, paths)
+            args = tuple(args_list)
 
         workspace = None
         if "workspace_override" in kwargs:
             workspace = kwargs.pop("workspace_override")
-            assert workspace is None or isinstance(workspace, str), (
+            assert workspace is None or isinstance(workspace, str), (  # noqa: S101 deliberate invariant
                 f"workspace_override must be a string - got: {workspace} "
                 f"of type: {type(workspace)}"
             )
@@ -554,54 +655,60 @@ class P4ConnectionManager:
 
         return False
 
-    @lru_cache(maxsize=64)
+    @lru_cache(maxsize=64)  # noqa: B019 intentional method cache
     def _get_workspace_roots(self, workspace: str) -> tuple[str, str]:
-        """Get the roots of the given workspace"""
+        """Get the roots of the given workspace.
 
+        Args:
+            workspace: Name of the workspace.
+
+        Returns:
+            The lower case client root and server root.
+
+        Raises:
+            P4.P4Exception: If the workspace name is not valid.
+
+        """
         if workspace not in self._clients_cache:
             # @sharkmob-shea.richardson:
             # Raise a P4Exception. If within the connect loop, will continue
             # to the next workspace. If in a standalone function will raise a
             # valid error. This handles the bug where client name is provided
             # instead of a valid workspace name.
-            # This is a workaround rather than a fix as it is really hard to debug:
-            raise P4.P4Exception(f"Invalid workspace name provided: '{workspace}'")
+            # This is a workaround rather than a fix as it is really hard
+            # to debug:
+            msg = f"Invalid workspace name provided: '{workspace}'"
+            raise P4.P4Exception(msg)
 
         client = self._clients_cache[workspace]
-        assert "Root" in client, (
+        assert "Root" in client, (  # noqa: S101 deliberate invariant
             f"'Root' not found for workspace: '{workspace}'' - "
             f"it is likely a dead!:\n{client}"
         )
         client_root = client["Root"]
         server_info = self._connect_get_path_info([f"{client_root}\\..."])[0]
-        server_root = server_info["depotFile"].rstrip("...")
+        server_root = server_info["depotFile"].rstrip(".")
         return (
             str(pathlib.Path(client_root)).lower(),
             str(pathlib.Path(server_root)).lower()
         )
 
+    @staticmethod
     @lru_cache(maxsize=64)
     def _is_path_under_root(
-        self,
         path: Union[str, pathlib.Path],
         client_root: str,
         server_root: str
     ) -> bool:
         path = str(path).lower()
-        if path.startswith(server_root):
-            return True
-
-        elif path.startswith(client_root):
-            return True
-
-        return False
+        return path.startswith((server_root, client_root))
 
     # @lru_cache(maxsize=64)
     def _are_paths_under_root(
         self,
         workspace: str,
         paths: tuple[str | pathlib.Path]
-    ):
+    ) -> bool:
         client_root, server_root = self._get_workspace_roots(workspace)
         for path in paths:
             if self._is_path_under_root(path, client_root, server_root):
@@ -611,8 +718,17 @@ class P4ConnectionManager:
 
         return True
 
-    @lru_cache(maxsize=64)
-    def is_path_under_any_root(self, path: Union[str, pathlib.Path]):
+    @lru_cache(maxsize=64)  # noqa: B019 intentional method cache
+    def is_path_under_any_root(self, path: Union[str, pathlib.Path]) -> bool:
+        """Check if the path is under the root of any of the workspaces.
+
+        Args:
+            path: Local or depot path to check.
+
+        Returns:
+            True if the path is under a workspace root, False otherwise.
+
+        """
         for workspace in self._workspace_cache:
             with self.workspace_as(workspace):
                 client_root, server_root = self._get_workspace_roots(workspace)
@@ -620,25 +736,33 @@ class P4ConnectionManager:
                     return True
         return False
 
+    @staticmethod
     @functools.lru_cache(maxsize=64)
-    def _args_has_path_or_workspace(self, signature: inspect.Signature) -> bool:
-        """
-        Test if the function to be wrapped has an argument
-        called `path`, returning True if so and False if not.
+    def _args_has_path_or_workspace(signature: inspect.Signature) -> bool:
+        """Test if the function has a `path` or `workspace` argument.
+
         This will determine if path pre processing functions
         should be run on the functions args or not.
 
         This is cached to provide the best possible performance.
+
+        Args:
+            signature: Signature of the function to be wrapped.
+
+        Returns:
+            True if the function has a `path` or `workspace` argument.
+
         """
+        return (
+            "path" in signature.parameters
+            or "workspace" in signature.parameters
+        )
 
-        if ("path" not in signature.parameters and
-                "workspace" not in signature.parameters):
-            return False
-
-        return True
-
+    @staticmethod
     @functools.lru_cache(maxsize=64)
-    def _get_path_index_from_args(self, signature: inspect.Signature) -> Optional[int]:
+    def _get_path_index_from_args(
+        signature: inspect.Signature,
+    ) -> Optional[int]:
         arg_names = tuple(signature.parameters)
         path_index = None
         if "path" in arg_names:
@@ -646,25 +770,32 @@ class P4ConnectionManager:
 
         return path_index
 
-    def _set_retry_p4_connection(self, value: bool):
+    def _set_retry_p4_connection(self, *, value: bool) -> None:
         self._retry_p4_connection = value
 
-    def _start_retry_p4_connection_timer(self, interval=5):
+    def _start_retry_p4_connection_timer(self, interval: float = 5) -> None:
         timer = threading.Timer(interval, self.test_connection)
         timer.start()
 
-    def _update_workspace_cache(self, workspace):
-        """
+    def _update_workspace_cache(self, workspace: str) -> None:
+        """Move the given workspace to the front of `_workspace_cache`.
+
         This puts the workspace that most recently worked at the
         front of the `_workspace_cache` to try and reduce
         the number of attempts on subsequent operations.
         The idea is p4 operations work on batches of files
         within the same workspace.
         This won't always be the case, but it will make
-        large speed improvements when it is:
+        large speed improvements when it is.
+
+        Args:
+            workspace: Name of the workspace that worked last.
+
         """
         if workspace not in self._workspace_cache:
-            print("Workspace is not valid: {} - cannot sort cache".format(workspace))
+            sys.stdout.write(
+                f"Workspace is not valid: {workspace} - cannot sort cache\n"
+            )
             return
 
         index = self._workspace_cache.index(workspace)
@@ -675,7 +806,7 @@ class P4ConnectionManager:
     def _get_path_arg_info(
             self,
             function: Callable[..., Any],
-            args:tuple[Any, ...]
+            args: tuple[Any, ...]
     ) -> tuple[tuple[str] | None, bool]:
         signature = inspect.signature(function)
         compile_result = False
@@ -685,19 +816,28 @@ class P4ConnectionManager:
         path = None   # type: tuple[str] | None
         path_index = self._get_path_index_from_args(signature)
         if path_index is not None:
-            _path = args[path_index]
-            compile_result = isinstance(_path, (list, tuple))
-            _path = make_tuple_if_not(_path)
-            path = tuple(dict.fromkeys(_path).keys())
+            path_arg = args[path_index]
+            compile_result = isinstance(path_arg, (list, tuple))
+            path_arg = make_tuple_if_not(path_arg)
+            path = tuple(dict.fromkeys(path_arg).keys())
 
         return path, compile_result
 
-    def _is_p4_exception(self, error: Exception) -> bool:
-        """
+    @staticmethod
+    def _is_p4_exception(error: Exception) -> bool:
+        """Check if the error is a P4Exception.
+
         Query the exception type by `__name__` as it seems
         that P4 can get confused if there are multiple P4
         module paths available which results in P4Exception not
         being caught as expected!
+
+        Args:
+            error: The exception to check.
+
+        Returns:
+            True if the error is a P4Exception.
+
         """
         return type(error).__name__ == "P4Exception"
 
@@ -705,18 +845,22 @@ class P4ConnectionManager:
         self._attribute_errors.clear()
         self._workspace_errors.clear()
 
-    def _process_errors(self) -> None:
+    def _process_errors(self) -> None:  # noqa: C901 existing logic
         if self._run_successfully:
             return
 
         extra_path_existence_errors = []
 
-        def _process_workspace_errors(_extra_path_existence_errors):
+        def _process_workspace_errors(
+            _extra_path_existence_errors: list[str],
+        ) -> Optional[bool]:
             if self.p4.errors and not self._attribute_errors:
                 if not self._workspace_errors:
                     return False
 
-                error_text = "The paths do not exist under a valid workspace root:"
+                error_text = (
+                    "The paths do not exist under a valid workspace root:"
+                )
                 invalid_paths_found = False
                 for path in self._workspace_errors:
                     if not self.is_path_under_any_root(path):
@@ -724,9 +868,11 @@ class P4ConnectionManager:
                         invalid_paths_found = True
 
                 if not invalid_paths_found:
-                    for path in self._workspace_errors:
-                        if not pathlib.Path(path).exists():
-                            _extra_path_existence_errors.append(path)
+                    _extra_path_existence_errors.extend(
+                        path
+                        for path in self._workspace_errors
+                        if not pathlib.Path(path).exists()
+                    )
 
                     if not _extra_path_existence_errors:
                         return False
@@ -736,18 +882,22 @@ class P4ConnectionManager:
                     sys.stderr.write(error_text)
                     return True
 
-        def _process_path_existence_errors(_extra_path_existence_errors):
-            _path_existence_errors = self._path_existence_errors.copy()
-            _path_existence_errors.union(_extra_path_existence_errors)
-            if _path_existence_errors:
+            return None
+
+        def _process_path_existence_errors(
+            _extra_path_existence_errors: list[str],
+        ) -> None:
+            path_existence_errors = self._path_existence_errors.copy()
+            path_existence_errors.union(_extra_path_existence_errors)
+            if path_existence_errors:
                 error_text = "The following paths do not exist:"
-                for path in _path_existence_errors:
+                for path in path_existence_errors:
                     error_text = f"{error_text}\n - {path}"
 
                 error_text = f"{error_text}\n"
                 sys.stderr.write(error_text)
 
-        def _process_p4_attribute_errors():
+        def _process_p4_attribute_errors() -> None:
             if self._attribute_errors:
                 error_text = "The following p4 attributes do not exist:"
                 for error in self._attribute_errors:
@@ -756,7 +906,7 @@ class P4ConnectionManager:
                 error_text = f"{error_text}\n"
                 sys.stderr.write(error_text)
 
-        def _process_errors():
+        def _process_errors() -> None:
             if self.p4.errors:
                 error_text = "The following errors occured:"
                 for error in self.p4.errors:
@@ -777,10 +927,11 @@ class P4ConnectionManager:
         if not warnings:
             return
 
-        exclusive_check_outs = []
-        for warning in warnings:
-            if " - can't edit exclusive file already opened" in warning:
-                exclusive_check_outs.append(warning.split(" -")[0])
+        exclusive_check_outs = [
+            warning.split(" -")[0]
+            for warning in warnings
+            if " - can't edit exclusive file already opened" in warning
+        ]
 
         if exclusive_check_outs:
             raise p4_errors.P4ExclusiveCheckoutError(exclusive_check_outs)
@@ -788,12 +939,12 @@ class P4ConnectionManager:
         warning_text = "The following warnings occurred:"
         warning_added = False
         for warning in warnings:
-            warning = str(warning)
-            # if " - no such file(s)" in warning:
+            warning_str = str(warning)
+            # if " - no such file(s)" in warning_str:
             #     continue
 
             warning_added = True
-            warning_text = f"{warning_text}\n {warning}"
+            warning_text = f"{warning_text}\n {warning_str}"
 
         if warning_added:
             warning_text = f"{warning_text}\n"
@@ -801,37 +952,56 @@ class P4ConnectionManager:
 
         # warnings.clear()
 
-    def _process_result(
-        self,
+    @staticmethod
+    def _process_result(  # noqa: C901, PLR0913 existing signature
         result: T_Result,
         keys: T_Keys,
         actions: T_Actions,
+        *,
         none_keys: T_NoneKeys = None,
         none_actions: T_NoneActions = None,
         true_pattern: str = ...,
         false_pattern: str = ...,
-        set_none: Literal[False] = False
-    ):
-        """
-        Process the given result, matching expected key & action pairs for
-        dictionary results or true or false patterns for string results
-        to determine if the result has been successful or not.
-        """
+        set_none: bool = False
+    ) -> list[bool | None]:
+        """Process the given result to determine if it was successful.
 
+        Match expected key & action pairs for dictionary results or
+        true or false patterns for string results to determine if
+        the result has been successful or not.
+
+        Args:
+            result: The result returned by p4.
+            keys: Keys to look up in dictionary results.
+            actions: Values of `keys` that mean success.
+            none_keys: Keys to look up to detect a None result.
+            none_actions: Values of `none_keys` that mean None.
+            true_pattern: Substring of a string result meaning success.
+            false_pattern: Substring of a string result meaning failure.
+            set_none: Whether to add None for empty or `none_actions`
+                results.
+
+        Returns:
+            A success value for each processed item of the result.
+
+        """
         keys = make_tuple_if_not(keys)
         actions = make_tuple_if_not(actions)
-        none_keys = make_tuple_if_not(none_keys) if none_keys else tuple()
-        none_actions = make_tuple_if_not(none_actions) if none_actions else tuple()
+        none_keys = make_tuple_if_not(none_keys) if none_keys else ()
+        none_actions = (
+            make_tuple_if_not(none_actions) if none_actions else ()
+        )
 
-        def query_key(
+        def query_key(  # noqa: PLR0913, PLR0917 existing signature
             data: dict[str, str],
             keys: tuple[str],
             actions: tuple[str],
             none_keys: tuple[str],
             none_actions: tuple[str],
             result: list[bool | None],
-            set_none: bool=False
-        ):
+            *,
+            set_none: bool = False
+        ) -> None:
             if set_none:
                 for key in none_keys:
                     if key not in data:
@@ -882,7 +1052,7 @@ class P4ConnectionManager:
                     results.append(False)
                     continue
 
-                elif "- empty, assuming" in data:
+                if "- empty, assuming" in data:
                     continue
 
             results.append(False)
@@ -897,10 +1067,18 @@ class P4ConnectionManager:
         username: str,
         password: str,
         workspace_name: str
-    ):
-        """Connects from values in Settings
+    ) -> None:
+        """Connect using the values from the settings.
 
         Override P4CONFIG values.
+
+        Args:
+            host: Perforce server host.
+            port: Perforce server port.
+            username: Perforce user name.
+            password: Password of the user.
+            workspace_name: Workspace (client) to use.
+
         """
         conn_manager = _get_connection_manager()
         if conn_manager.p4.user != username:
@@ -913,15 +1091,25 @@ class P4ConnectionManager:
         conn_manager.__workspace_cache__ = self._connect_get_workspaces()
 
     # Connect Methods:
-    def _connect_add(
+    def _connect_add(  # noqa: C901 existing logic
         self,
         path: T_PthStrLst,
         change_description: str | None = None,
     ) -> P4ReturnBoolType:
-        """
-        Add the given file if it does not exists on the server already.
-        """
+        """Add the given file if it does not exists on the server already.
 
+        Args:
+            path: Local paths of the files to add.
+            change_description: Description of the change list to add
+                the files to.
+
+        Returns:
+            Whether each file was marked for add.
+
+        Raises:
+            P4PathDoesNotExistError: If a file does not exist locally.
+
+        """
         for _path in path:
             if not pathlib.Path(_path).exists():
                 raise p4_errors.P4PathDoesNotExistError(_path)
@@ -935,6 +1123,8 @@ class P4ConnectionManager:
 
                 if "currently opened for add" in data:
                     return data.split("#")[0]
+
+                return None
 
             files_to_reopen: List[str] = []
             for _result in result:
@@ -959,7 +1149,9 @@ class P4ConnectionManager:
             true_pattern="- currently opened for"
         )
 
-    def _connect_add_to_change_list(self, path: T_PthStrLst, description: str) -> bool:
+    def _connect_add_to_change_list(
+        self, path: T_PthStrLst, description: str
+    ) -> bool:
         change_dict = self._connect_get_existing_change_list(description)
         user_name = self._connect_get_user_name()
         client = self.p4.client
@@ -978,7 +1170,7 @@ class P4ConnectionManager:
         depot_paths = self._connect_get_server_path(path)
 
         self._connect_checkout(path)
-        _depot_paths = set((path for path in depot_paths if path))
+        depot_path_set = {path for path in depot_paths if path}
         paths_to_reopen: List[str] = []
         changes = self.p4.run_describe(
             [change["change"] for change in changes]
@@ -990,7 +1182,7 @@ class P4ConnectionManager:
             if change["desc"] == description:
                 continue
 
-            intersection = _depot_paths.intersection(
+            intersection = depot_path_set.intersection(
                 set(change["depotFile"])
             )
             if not intersection:
@@ -1004,18 +1196,14 @@ class P4ConnectionManager:
             )
 
         files = [info["depotFile"] for info in self.p4.run_where(path)]
-        change_files: List[str] = (
-            change_dict["Files"]
-            if "Files" in change_dict
-            else []
-        )
+        change_files: List[str] = change_dict.get("Files", [])
         change_files.extend(files)
         change_files = list(set(change_files))
         change_dict["Files"] = change_files
 
-        _result = self.p4.save_change(change_dict)
+        save_result = self.p4.save_change(change_dict)
         result = self._process_result(
-            _result,
+            save_result,
             "",
             "",
             true_pattern=f"adding {len(change_files)} file(s)."
@@ -1027,12 +1215,19 @@ class P4ConnectionManager:
         path: T_PthStrLst,
         change_description: str | None = None,
     ) -> bool | list[bool] | None:
-        """
-        Checkout the given file(s).
-        """
+        """Checkout the given file(s).
 
+        Args:
+            path: Paths of the files to check out.
+            change_description: Description of the change list to add
+                the files to.
+
+        Returns:
+            Whether each file was checked out.
+
+        """
         stat = self._connect_get_stat(path)
-        path = tuple((_stat["depotFile"] for _stat in stat if _stat))
+        path = tuple(_stat["depotFile"] for _stat in stat if _stat)
 
         result = self._connect_is_latest(path)
         paths_to_sync = [
@@ -1047,22 +1242,22 @@ class P4ConnectionManager:
         if change_description:
             self._connect_create_change_list(change_description, files=path)
 
-        _result = self._process_result(
+        checkout_result = self._process_result(
             edit_result,
             "action",
             "edit",
             true_pattern="- currently opened for",
             false_pattern="- can't edit (already opened for add)",
         )
-        if _result is None:
+        if checkout_result is None:
             return None
 
-        return _result
+        return checkout_result
 
     def _connect_checked_out_by(
         self,
         path: T_PthStrLst,
-        other_users_only: bool = False,
+        other_users_only: bool = False,  # noqa: FBT001, FBT002 public API
         fstat_args: P4ArgsType = None
     ) -> list[list[tuple[str, str]] | None]:
         stat = self._connect_get_stat(path, fstat_args or [])
@@ -1078,10 +1273,13 @@ class P4ConnectionManager:
                 continue
 
             file_checked_out_by_list: list[str] = []
-            if (not other_users_only) and self._is_file_checked_out_by_current_user(data):
+            if (
+                (not other_users_only)
+                and self._is_file_checked_out_by_current_user(data)
+            ):
                 # @sharkmob-shea.richardson:
-                # Format this in the same way as if it were checked out by another user, so
-                # the output will be consistent:
+                # Format this in the same way as if it were checked out by
+                # another user, so the output will be consistent:
                 file_checked_out_by_list.append(
                     f"{current_user_name}@{self.p4.client}")
 
@@ -1106,40 +1304,52 @@ class P4ConnectionManager:
         files: T_PthStrLst | None = None,
         files_to_reopen: T_PthStrLst | None = None
     ) -> list[bool]:
-        """
-        Create a change list with the given description and optional files.
-        """
+        """Create a change list with the given description and optional files.
 
+        If a change list with the description exists, the files are added
+        to it instead.
+
+        Args:
+            description: Description of the change list.
+            files: Paths of the files to add to the change list.
+            files_to_reopen: Paths of the files to move to the change list.
+
+        Returns:
+            Whether the change list was saved.
+
+        Raises:
+            P4.P4Exception: If a new change list could not be created.
+
+        """
         try:
             change_dict = self._connect_get_existing_change_list(description)
         except P4.P4Exception:
             change_dict = None
 
-        _files = []
+        depot_files = []
         if files:
             files = (
                 [file for file in files if file not in files_to_reopen]
                 if files_to_reopen
                 else files
             )
-            _files = [info["depotFile"] for info in self.p4.run_where(files)]
+            depot_files = [
+                info["depotFile"] for info in self.p4.run_where(files)
+            ]
 
         if change_dict:
-            change_files: List[str] = (
-                change_dict["Files"]
-                if "Files" in change_dict
-                else []
-            )
-            change_files.extend(_files)
+            change_files: List[str] = change_dict.get("Files", [])
+            change_files.extend(depot_files)
             change_files = list(set(change_files))
             change_dict["Files"] = change_files
 
         else:
             change_dict = self.p4.fetch_change()
             if not change_dict:
-                raise P4.P4Exception("Failed to create a new change list")
+                msg = "Failed to create a new change list"
+                raise P4.P4Exception(msg)
 
-            change_dict["Files"] = _files
+            change_dict["Files"] = depot_files
 
         if files_to_reopen:
             self.p4.run_reopen(
@@ -1148,13 +1358,13 @@ class P4ConnectionManager:
 
         change_dict["Description"] = description
         save_change_result = self.p4.save_change(change_dict)
-        result = self._process_result(
+        return self._process_result(
             save_change_result, "", "", true_pattern="created."
         )
 
-        return result
-
-    def _connect_get_changes(self, stream: str = None):
+    def _connect_get_changes(
+        self, stream: Optional[str] = None
+    ) -> Optional[list[Any]]:
         client_info = self.p4.run("client", "-o")[0]
         stream = stream or client_info["Stream"]
 
@@ -1164,39 +1374,45 @@ class P4ConnectionManager:
 
         change_list = self._connect_run_command(*cmd)
         if not change_list:
-            return
+            return None
 
         # returns list as _process_result_ breaks dictionary
         return change_list
 
-    def _connect_get_uncommitted_changes(self):
+    def _connect_get_uncommitted_changes(self) -> list[Any]:
         client_spec = self._connect_run_command("client", "-o")[0]
         cmd = ["changes", "-s", "pending", "-c", client_spec["Client"]]
         changes = self._connect_run_command(*cmd)
 
-        if default_changes := self._connect_run_command("opened", "-c", "default"):
+        if default_changes := self._connect_run_command(
+            "opened", "-c", "default"
+        ):
             changes.append(default_changes)
         return changes
 
-    def _connect_get_last_change_list(self):
+    def _connect_get_last_change_list(self) -> Optional[list[Any]]:
         client_info = self.p4.run("client", "-o")[0]
         client_stream = client_info["Stream"]
         cmd = ["changes", "-s", "submitted", "-m", 1, f"{client_stream}/..."]
         change_list = self._connect_run_command(*cmd)
         if not change_list:
-            return
+            return None
 
         # returns list as _process_result_ breaks dictionary
         return change_list
 
-    def _connect_get_change_list_number(self, description: str):
+    def _connect_get_change_list_number(
+        self, description: str
+    ) -> Optional[str]:
         change_dict = self._connect_get_existing_change_list(description)
         if not change_dict:
-            return
+            return None
 
         return change_dict["change"]
 
-    def _connect_create_workspace(self, name: str, root: str, stream: str):
+    def _connect_create_workspace(
+        self, name: str, root: str, stream: str
+    ) -> list[Any]:
         client = self.p4.fetch_client()
         client["Client"] = name
         client["Root"] = root
@@ -1208,10 +1424,16 @@ class P4ConnectionManager:
         path: T_PthStrLst,
         change_description: str | None = None,
     ) -> list[bool]:
-        """
-        Delete the given file if it exists on the server.
-        """
+        """Delete the given file if it exists on the server.
 
+        Args:
+            path: Paths of the files to delete.
+            change_description: Description of the change list to use.
+
+        Returns:
+            Whether each file was marked for delete.
+
+        """
         if change_description:
             change_number = self._connect_create_change_list(
                 change_description
@@ -1223,11 +1445,21 @@ class P4ConnectionManager:
         return self._process_result(result, "action", "edit")
 
     def _connect_delete_change_list(
-            self, description: str, force: bool = False) -> list[bool]:
-        """
-        Delete a change list based on it's description.
-        """
+            self,
+            description: str,
+            force: bool = False,  # noqa: FBT001, FBT002 public API
+    ) -> list[bool]:
+        """Delete a change list based on it's description.
 
+        Args:
+            description: Description of the change list.
+            force: Move the files of the change list to the default
+                change list before deleting it.
+
+        Returns:
+            Whether the change list was deleted.
+
+        """
         change_list = self._connect_get_existing_change_list(description)
         change_id = int(change_list["Change"])
         files = "Files" in change_list and change_list["Files"]
@@ -1235,15 +1467,15 @@ class P4ConnectionManager:
             self.p4.run_reopen(["-c", "default"], files)
 
         change_result = self.p4.run_change(["-d", change_id])
-        result = self._process_result(
+        return self._process_result(
             change_result,
             "",
             "",
             true_pattern=f"Change {change_id} deleted.",
-            false_pattern="open file(s) associated with it and can't be deleted"
+            false_pattern=(
+                "open file(s) associated with it and can't be deleted"
+            )
         )
-
-        return result
 
     def _connect_exists_on_server(self, path: T_PthStrLst) -> list[bool]:
         # @sharkmob-shea.richardson:
@@ -1252,28 +1484,26 @@ class P4ConnectionManager:
         # info on all sub files recursively. This is done by
         # passing in the -m (max) argument and setting it as 1:
         stat = self._connect_get_stat(path, ["-m 1"])
-        result = [True if "depotFile" in data else False for data in stat]
-        return result
+        return ["depotFile" in data for data in stat]
 
     def _connect_get_attribute(
         self,
         path: T_PthStrLst,
         name: str,
-        default: Any = None,
-        raise_error:bool = False
+        default: str | None = None,
+        raise_error: bool = False,  # noqa: FBT001, FBT002 public API
     ) -> list[str | None]:
         # -Oa flag: Output attributes set by p4 attribute.
         result: list[dict[str, str]] = self.p4.run_fstat(("-Oa",), path)
 
-        def _get_attribute(data: dict[str, str], name: str):
+        def _get_attribute(data: dict[str, str], name: str) -> str | None:
             for key, value in data.items():
                 if "-" in key and name in key:
                     return value
 
             if raise_error:
-                raise p4_errors.P4AttributeError(
-                    f"'{name}' on: '{data['depotFile']}'"
-                )
+                msg = f"'{name}' on: '{data['depotFile']}'"
+                raise p4_errors.P4AttributeError(msg)
 
             self._attribute_errors.add(f"'{name}' on: '{data['depotFile']}'")
 
@@ -1281,24 +1511,29 @@ class P4ConnectionManager:
 
         return [_get_attribute(_result, name) for _result in result]
 
-    def _connect_get_client_root(self):
+    def _connect_get_client_root(self) -> str:
         result = self.p4.run_info()
         return result[0]["clientRoot"]
 
     def _connect_get_current_client_revision(
             self, path: T_PthStrLst) -> list[int | None]:
-        """
-        Get the current client revision numbers for the given path/paths.
-        """
+        """Get the current client revision numbers for the given path/paths.
 
+        Args:
+            path: Paths to query.
+
+        Returns:
+            The client revision of each path, 0 if it is not synced,
+                None if it does not exist on the server.
+
+        """
         stat = self._connect_get_stat(path)
-        result = [
+        return [
             int(data["haveRev"])
             if ("haveRev" in data) else 0
             if data else None
             for data in stat
         ]
-        return result
 
     def _connect_get_version_info(
         self,
@@ -1310,8 +1545,15 @@ class P4ConnectionManager:
         self,
         path: T_PthStrLst
     ) -> list[tuple[int, int] | tuple[None, None]]:
-        """
-        Get the current source and client revision numbers for the given paths.
+        """Get the current source and client revision numbers.
+
+        Args:
+            path: Paths to query.
+
+        Returns:
+            The server and client revision of each path, (None, None)
+                if it does not exist on the server.
+
         """
 
         def _get_version_info(
@@ -1320,8 +1562,8 @@ class P4ConnectionManager:
             if not stat:
                 return (None, None)
 
-            source_rev = stat["headRev"] if "headRev" in stat else 0
-            local_rev = stat["haveRev"] if "haveRev" in stat else 0
+            source_rev = stat.get("headRev", 0)
+            local_rev = stat.get("haveRev", 0)
             return int(source_rev), int(local_rev)
 
         stat = self._connect_get_stat(path)
@@ -1330,18 +1572,23 @@ class P4ConnectionManager:
 
     def _connect_get_current_server_revision(
             self, path: T_PthStrLst) -> list[int | None]:
-        """
-        Get the current source revision numbers for the given path/paths.
-        """
+        """Get the current source revision numbers for the given path/paths.
 
+        Args:
+            path: Paths to query.
+
+        Returns:
+            The server revision of each path, 0 if it has none,
+                None if it does not exist on the server.
+
+        """
         stat = self._connect_get_stat(path)
-        result = [
+        return [
             int(data["headRev"])
             if ("headRev" in data) else 0
             if data else None
             for data in stat
         ]
-        return result
 
     def _connect_get_existing_change_list(
             self, description: str) -> dict[str, Any]:
@@ -1352,7 +1599,8 @@ class P4ConnectionManager:
         )
 
         if not changes:
-            raise P4.P4Exception("No changelists found!")
+            msg = "No changelists found!"
+            raise P4.P4Exception(msg)
 
         description = description.strip()
         for change_data in self.p4.run_describe(
@@ -1363,20 +1611,23 @@ class P4ConnectionManager:
 
             return self.p4.fetch_change(change_data["change"])
 
-        raise P4.P4Exception(f'No changelist with description: "{description}" found!')
+        msg = f'No changelist with description: "{description}" found!'
+        raise P4.P4Exception(msg)
 
     def _connect_get_files(
         self,
         path: T_PthStrLst,
         extension: str | None = None,
-        include_all: bool = False,
-        query_sub_folders: bool = True
+        include_all: bool = False,  # noqa: FBT001, FBT002 public API
+        query_sub_folders: bool = True  # noqa: FBT001, FBT002 public API
     ) -> list[tuple[pathlib.Path, ...]]:
         extension = extension or ""
         if isinstance(path, list):
             path = [f"{_path}{extension}" for _path in path]
 
-        def _is_file_valid(_path, parent_path):
+        def _is_file_valid(
+            _path: pathlib.Path, parent_path: Union[str, pathlib.Path]
+        ) -> bool:
             if query_sub_folders:
                 return True
 
@@ -1390,14 +1641,14 @@ class P4ConnectionManager:
                 for data in self.p4.run_files(args)
             )
             result.append(
-                tuple((file for file in files
-                       if _is_file_valid(file, _path))
+                tuple(file for file in files
+                       if _is_file_valid(file, _path)
                 )
             )
 
         return result
 
-    def _connect_get_files_in_folder_in_date_order(
+    def _connect_get_files_in_folder_in_date_order(  # noqa: C901, PLR0912
         self,
         path: T_PthStrLst,
         name_pattern: str | None = None,
@@ -1411,31 +1662,30 @@ class P4ConnectionManager:
         fstat_args.extend(("-Sd", "-Rc"))
         for _path in path:
             if not _path.endswith("..."):
-                raise AttributeError(
-                    "get_files_in_folder_in_date_order can only be run on folders!"
+                msg = (
+                    "get_files_in_folder_in_date_order can only be run on"
+                    " folders!"
                 )
+                raise AttributeError(msg)
 
             stat = self._connect_get_stat((_path, ), args=fstat_args)
             if name_pattern:
                 name_pattern = name_pattern.lower()
 
-            _extensions = None
+            extension_set = None
             if extensions is not None:
-                _extensions = set(
-                    (
-                        extension.lower()
-                        if extension.startswith(".")
-                        else ".{}".format(extension).lower()
-                        for extension in extensions
-                    )
-                )
+                extension_set = {
+                    extension.lower()
+                    if extension.startswith(".")
+                    else f".{extension}".lower()
+                    for extension in extensions
+                }
 
             local_path = self._connect_get_local_path((_path, ))
             if not local_path:
                 continue
 
-            _local_path = local_path[0]
-            parent_path_client = pathlib.Path(_local_path)
+            parent_path_client = pathlib.Path(local_path[0])
             path_result: list[P4PathDateData] = []
             for data in stat:
                 path_date_data = P4PathDateData()
@@ -1445,15 +1695,17 @@ class P4ConnectionManager:
                 else:
 
                     local_path = pathlib.Path(data["clientFile"])
-                    if not local_path.parent == parent_path_client:
+                    if local_path.parent != parent_path_client:
                         continue
 
                     if (name_pattern
                          and name_pattern not in local_path.stem.lower()):
                         continue
 
-                    if (_extensions
-                            and local_path.suffix.lower() not in _extensions):
+                    if (
+                        extension_set
+                        and local_path.suffix.lower() not in extension_set
+                    ):
                         continue
 
                     if "action" in data and data["action"] == "add":
@@ -1462,12 +1714,12 @@ class P4ConnectionManager:
                         # all we have to go on is the last time
                         # the file was modified locally:
                         mod_time = local_path.stat().st_mtime
-                        mod_date = datetime.datetime.fromtimestamp(mod_time)
+                        mod_date = _naive_local_datetime(mod_time)
                         path_date_data.set_data(local_path, mod_date)
 
                     else:
                         mod_time = int(data["headTime"])
-                        mod_date = datetime.datetime.fromtimestamp(mod_time)
+                        mod_date = _naive_local_datetime(mod_time)
                         path_date_data.set_data(local_path, mod_date)
 
                 path_result.append(path_date_data)
@@ -1476,16 +1728,12 @@ class P4ConnectionManager:
 
         return result
 
-    def _connect_get_info(self):
+    def _connect_get_info(self) -> list[Any]:
         return self.p4.run_info()
 
     def _connect_get_latest(self, path: T_PthStrLst) -> list[bool | None]:
         try:
             sync_result = self.p4.run_sync(path)
-            result = self._process_result(
-                sync_result, "action", ("updated", "added"), set_none=True
-            )
-            return result
         except Exception as error:
             if not self._is_p4_exception(error):
                 raise
@@ -1500,12 +1748,12 @@ class P4ConnectionManager:
             warnings = self.p4.warnings.copy()  # type: list[str]
             result = [True] * len(path)  # type: list[bool | None]
             latest_paths = tuple(
-                (
+
                     (warning.replace(" - file(s) up-to-date.", ""),
                      warnings.remove(warning))[0]
                     for warning in reversed(warnings)
                     if "file(s) up-to-date." in warning
-                )
+
             )
 
             # @sharkmob-shea.richardson:
@@ -1514,12 +1762,12 @@ class P4ConnectionManager:
                 return result
 
             local_paths = tuple(
-                (
+
                     (warning.replace(" - no such file(s).", ""),
                      warnings.remove(warning))[0]
                     for warning in reversed(warnings)
                     if "no such file(s)." in warning
-                )
+
             )
             if local_paths:
                 for _path in local_paths:
@@ -1528,10 +1776,15 @@ class P4ConnectionManager:
 
             return result
 
+        else:
+            return self._process_result(
+                sync_result, "action", ("updated", "added"), set_none=True
+            )
+
     def _connect_get_local_path(self, path: T_PthStrLst) -> tuple[str]:
         return tuple(
-            (data["path"].rstrip("...")
-             for data in self.p4.run_where(path))
+            data["path"].rstrip(".")
+             for data in self.p4.run_where(path)
         )
 
     def _connect_get_newest_file_in_folder(
@@ -1539,15 +1792,15 @@ class P4ConnectionManager:
         path: T_PthStrLst,
         name_pattern: str | None = None,
         extensions: Iterable[str] | None = None,
-    ):
+    ) -> Optional[P4PathDateData]:
         paths = self._connect_get_files_in_folder_in_date_order(
             path, name_pattern=name_pattern, extensions=extensions
         )
         if not paths:
-            return
+            return None
 
         if not paths[0]:
-            return
+            return None
 
         return paths[0][-1]
 
@@ -1565,24 +1818,28 @@ class P4ConnectionManager:
         if not isinstance(revision, (list, tuple)):
             revision = tuple([revision] * len(path))
 
-        if not len(revision) == len(path):
-            raise AttributeError(f"revision count ({len(revision)}) "
-                                 f"must match path count({len(path)})!")
+        if len(revision) != len(path):
+            msg = (
+                f"revision count ({len(revision)}) "
+                f"must match path count({len(path)})!"
+            )
+            raise AttributeError(msg)
 
         paths = [f"{_path}@{_revision}"
                  for _path, _revision in zip(path, revision)]
         sync_result = self.p4.run_sync(paths)
-        result = self._process_result(
+        return self._process_result(
             sync_result,
             "action",
             ("updated", "deleted"),
             true_pattern=" - file(s) up-to-date."
         )
 
-        return result
-
     def _connect_get_revision_history(
-            self, path: T_PthStrLst, include_all: bool = False):
+            self,
+            path: T_PthStrLst,
+            include_all: bool = False,  # noqa: FBT001, FBT002 public API
+    ) -> list[Any]:
         args = ["-t"]
         # if not include_all:
         #     args.append("-s")
@@ -1615,8 +1872,9 @@ class P4ConnectionManager:
             if not self._is_p4_exception(error):
                 raise
 
-            def _cull_no_such_file_warnings(index, warning, warnings_count):
-                # type: (int, str, int) -> str
+            def _cull_no_such_file_warnings(
+                index: int, warning: str, warnings_count: int
+            ) -> str:
                 index = warnings_count - index
                 self.p4.warnings.pop(index)
                 return warning.replace(" - no such file(s).", "")
@@ -1625,7 +1883,7 @@ class P4ConnectionManager:
             # fstat has failed, potentially due to one or more of the files
             # not existing on p4. Let's filter those files out of `path`
             # and try fstat again:
-            path = typing.cast(T_StrTuple, path)
+            path = cast("T_StrTuple", path)
             warnings = tuple(reversed(self.p4.warnings))
             warnings_count = len(warnings) - 1
             excluded_paths: Generator[str, None, None] = (
@@ -1647,16 +1905,16 @@ class P4ConnectionManager:
             # we now need to add an empty dict into the indicies of
             # the files that don't exist in perforce to allow
             # the results to be mapped correctly when returned
-            # from __connect__
+            # from _run_connect
             empty_dict = {}
-            for index in sorted((exclude_data.keys())):
+            for index in sorted(exclude_data.keys()):
                 stat.insert(index, empty_dict)
 
         return stat
 
     def _connect_get_streams(self) -> tuple[str]:
         streams = self.p4.run_streams()
-        return tuple((stream["Stream"] for stream in streams))
+        return tuple(stream["Stream"] for stream in streams)
 
     def _connect_get_user_name(self) -> str:
         user_data = self.p4.run_user("-o")[0]
@@ -1681,8 +1939,7 @@ class P4ConnectionManager:
                 if data["Host"].lower() == host_name
             )
 
-        workspaces = list(dict.fromkeys(workspaces).keys())
-        return workspaces
+        return list(dict.fromkeys(workspaces).keys())
 
     def _connect_is_checked_out_by_user(
         self, path: T_PthStrLst, user_name: tuple[str] | str | None = None
@@ -1700,9 +1957,9 @@ class P4ConnectionManager:
                 continue
 
             user_found = False
-            checked_out_by_set = set((name for name, _ in _checked_out_by))
-            for user_name in user_names:
-                if user_name in checked_out_by_set:
+            checked_out_by_set = {name for name, _ in _checked_out_by}
+            for name_to_find in user_names:
+                if name_to_find in checked_out_by_set:
                     user_found = True
                     break
 
@@ -1716,7 +1973,7 @@ class P4ConnectionManager:
 
     def _connect_is_checked_out(self, path: T_PthStrLst) -> list[bool | None]:
         stat_result = self._connect_get_stat(path)
-        result = self._process_result(
+        return self._process_result(
             stat_result,
             ("otherAction", "action"),
             ("edit", "add"),
@@ -1725,9 +1982,9 @@ class P4ConnectionManager:
             set_none=True
         )
 
-        return result
-
-    def _connect_is_latest(self, path: Sequence[str]) -> Optional[Tuple[bool]]:
+    def _connect_is_latest(  # noqa: C901 existing logic
+        self, path: Sequence[str]
+    ) -> Optional[Tuple[bool]]:
         result: Optional[Dict[str, bool]] = dict.fromkeys(path, False)  # type: dict[str, bool | None]
         files: List[str] = []
         folders: List[str] = []
@@ -1765,9 +2022,10 @@ class P4ConnectionManager:
 
         stat = self._connect_get_stat(files)
         valid_states = {"add", "move/add", "edit"}
+
         def _is_file_latest(data: Dict) -> Optional[bool]:
             if not data:
-                return
+                return None
             if "action" in data and data["action"] in valid_states:
                 return True
             if "headRev" not in data:
@@ -1785,40 +2043,40 @@ class P4ConnectionManager:
 
     def _connect_is_stream_valid(self, stream: str) -> bool:
         streams = self._connect_get_streams()
-        return stream.lower() in set([stream.lower() for stream in streams])
+        return stream.lower() in {stream.lower() for stream in streams}
 
     def _connect_move(
         self,
         path: T_PthStrLst,
         target_path: T_PthStrLst,
         change_description: str | None = None,
-        get_latest: bool = True
+        get_latest: bool = True  # noqa: FBT001, FBT002 public API
     ) -> list[bool]:
-        target_path = make_tuple_if_not(target_path)  # type: ignore
+        target_path = make_tuple_if_not(target_path)  # type: ignore[assignment]
         clean_paths = self._get_clean_p4_paths(target_path)
         if get_latest:
             paths_to_sync = list(path).copy()
             paths_to_sync.extend(
-                (
+
                     path for path
                     in clean_paths
                     if pathlib.Path(path).exists()
-                )
+
             )
             if paths_to_sync:
                 sync_result = {}
-                try:
+                with suppress(P4.P4Exception):
                     sync_result = self._connect_get_latest(paths_to_sync)
-                except P4.P4Exception:
-                    pass
 
-                for result in paths_to_sync:
+                for _ in paths_to_sync:
                     if sync_result is False:
-                        raise P4.P4Exception("Files are not the latest versions!")
+                        msg = "Files are not the latest versions!"
+                        raise P4.P4Exception(msg)
 
-        path = typing.cast(T_StrTuple, path)
+        path = cast("T_StrTuple", path)
         if len(path) != len(clean_paths):
-            raise ValueError("path length must equal target_path length")
+            msg = "path length must equal target_path length"
+            raise ValueError(msg)
 
         self._connect_checkout(path, change_description=change_description)
         args = []
@@ -1830,46 +2088,45 @@ class P4ConnectionManager:
 
         move_result = []
         for source, target in zip(path, target_path):
-            _args = args.copy()
-            _args.extend((source, target))
-            result = self.p4.run_move(_args)
+            move_args = args.copy()
+            move_args.extend((source, target))
+            result = self.p4.run_move(move_args)
             move_result.append(result[0])
 
-        result = self._process_result(
+        return self._process_result(
             move_result,
             "action",
             "move/add",
             true_pattern="can't move (already opened for move/delete)"
         )
 
-        return result
-
     def _connect_revert(self, path: T_PthStrLst) -> list[bool] | None:
         revert_result: list[dict[str, Any]] = self.p4.run_revert(path)
-        _revert_result = (
+        filtered_result = (
             data
             for data in revert_result
             if data["clientFile"] in path
                or data["depotFile"] in path
         )
-        result = self._process_result(
-            _revert_result,
+        return self._process_result(
+            filtered_result,
             "action",
             ("abandoned", "reverted", "deleted"),
             true_pattern="- currently opened for"
         )
-        return result
 
-    def _connect_run_command(self, cmd: str, *args, **kwargs):
-        result = self.p4.run(cmd, *args, **kwargs)
-        return result
+    def _connect_run_command(
+        self, cmd: str, *args: object, **kwargs: object
+    ) -> list[Any]:
+        return self.p4.run(cmd, *args, **kwargs)
 
-    def _connect_set_attribute(self, path: T_PthStrLst, name: str, value: Any):
+    def _connect_set_attribute(
+        self, path: T_PthStrLst, name: str, value: object
+    ) -> list[bool | None]:
         attrubute_result = (
             self.p4.run_attribute(("-n", name, "-v", value), path)
         )
-        result = self._process_result(attrubute_result, "status", "set")
-        return result
+        return self._process_result(attrubute_result, "status", "set")
 
     def _connect_submit_change_list(
             self, change_description: str) -> int | None:
@@ -1882,7 +2139,9 @@ class P4ConnectionManager:
 
         return int(result[0]["change"])
 
-    def _connect_submit_default_changelist(self, change_description: str) -> int | None:
+    def _connect_submit_default_changelist(
+        self, change_description: str
+    ) -> int | None:
         default_cl_cmd = ["change", "-o"]
         default_cl = self.p4.run(*default_cl_cmd)[0]
         default_cl["Description"] = change_description
@@ -1892,59 +2151,74 @@ class P4ConnectionManager:
 
         return int(result[0]["change"])
 
-    def _connect_sync(self, path):
-        """
-        Synonym for get_latest
-        """
+    def _connect_sync(self, path: T_PthStrLst) -> list[bool | None]:
+        """Synonym for get_latest.
 
+        Args:
+            path: Paths to sync.
+
+        Returns:
+            Whether each path was synced, None if it does not exist.
+
+        """
         return self._connect_get_latest(path)
 
-    def _connect_unsync(self, path: T_PthStrLst):
-        _path = (
+    def _connect_unsync(self, path: T_PthStrLst) -> list[bool | None]:
+        unsync_path = (
             [f"{p}#none" for p in path]
             if isinstance(path, (list, tuple))
             else f"{path}#none"
         )
-        sync_result = self.p4.run_sync(_path)
-        result = self._process_result(sync_result, "action", "deleted")
-        return result
+        sync_result = self.p4.run_sync(unsync_path)
+        return self._process_result(sync_result, "action", "deleted")
 
     def _connect_update_change_list_description(
-            self, old_description: str, new_description: str):
+            self, old_description: str, new_description: str
+    ) -> list[bool | None]:
         change_list_spec = (
             self._connect_get_existing_change_list(old_description))
         if not change_list_spec:
-            raise P4.P4Exception("Changelist not found")
+            msg = "Changelist not found"
+            raise P4.P4Exception(msg)
 
         change_list_spec["Description"] = new_description
         change_result = self.p4.save_change(change_list_spec)
-        result = self._process_result(
+        return self._process_result(
             change_result,
             "",
             "",
             true_pattern=f"Change {change_list_spec['Change']} updated."
         )
-        return result
 
     # Public Methods:
     @contextmanager
     def workspace_as(self, workspace: str) -> Iterator[None]:
-        """Context manager that connects to if not already connected p4,
-        yielding the instance of p4 and closing the connection when done.
-        """
+        """Temporarily switch the p4 client to the given workspace.
 
+        The previous client is restored when the context exits.
+
+        Args:
+            workspace: Name of the workspace to use.
+
+        Yields:
+            Nothing, the workspace is active inside the context.
+
+        """
         current_workspace = self.p4.client
         try:
             self.p4.client = workspace
             yield
 
-        except:
-            raise
-
         finally:
             self.p4.client = current_workspace
 
     def test_connection(self) -> bool:
+        """Test the connection to the server and schedule a retry.
+
+        Returns:
+            True if the server could be reached, False otherwise.
+
+        """
         try:
             with self.p4.connect():
                 self._start_retry_p4_connection_timer(interval=60)
@@ -1958,40 +2232,33 @@ class P4ConnectionManager:
             return False
 
 
-_connection_manager = None
-
-
+@functools.cache
 def _get_connection_manager() -> P4ConnectionManager:
     # this doesn't work with REST api where thread is not main
-    #if threading.current_thread() is not threading.main_thread():
-        # # Generate a new P4ConnectionManager per thread:
-        # return P4ConnectionManager()
+    # if threading.current_thread() is not threading.main_thread():
+    #     # Generate a new P4ConnectionManager per thread:
+    #     return P4ConnectionManager()
 
-    global _connection_manager
-    if _connection_manager is None:
-        _connection_manager = P4ConnectionManager()
-
-    return _connection_manager
+    # The cache makes this return a single module level instance.
+    return P4ConnectionManager()
 
 
 __all__ = (
-    "_get_connection_manager",
     "P4ConnectionManager",
     "P4PathDateData",
-    "exceptions",
-    "login",
+    "_get_connection_manager",
     "add",
+    "checked_out_by",
     "checkout",
     "create_change_list",
     "create_workspace",
     "delete",
     "delete_change_list",
     "exceptions",
+    "exceptions",
     "get_attribute",
-    "checked_out_by",
-    "get_changes",
-    "get_last_change_list",
     "get_change_list_number",
+    "get_changes",
     "get_client_root",
     "get_current_client_revision",
     "get_current_revision_info",
@@ -1999,6 +2266,7 @@ __all__ = (
     "get_existing_change_list",
     "get_files",
     "get_info",
+    "get_last_change_list",
     "get_latest",
     "get_local_path",
     "get_newest_file_in_folder",
@@ -2011,11 +2279,12 @@ __all__ = (
     "get_user_name",
     "get_workspaces",
     "host_name",
-    "is_checked_out_by_user",
     "is_checked_out",
+    "is_checked_out_by_user",
     "is_latest",
     "is_offline",
     "is_stream_valid",
+    "login",
     "move",
     "revert",
     "run_command",
@@ -2029,38 +2298,40 @@ __all__ = (
 )
 
 
-def __getattr__(attribute_name: str) -> Any:
+def __getattr__(attribute_name: str) -> Any:  # noqa: ANN401
+    """Return the attribute of the module level P4ConnectionManager.
+
+    This achieves two things:
+        1. Allows a single P4ConnectionManager to be used for one off
+            calls in the main thread, without the need to init a new
+            P4ConnectionManager for each call.
+        2. Reduces the boilerplate required to expose the calls of the
+            single P4ConnectionManager, whilst still making the
+            functionality accessible at the module level.
+
+    Args:
+        attribute_name: The name of the module level attribute to access.
+
+    Returns:
+        The accessed attribute.
+
+    Raises:
+        AttributeError: If the attribute does not exist.
+
     """
-    Custom __getattr__ for this module that will return
-    the method of the module level P4ConnectionManager.
-
-        This achieves two things:
-            1. Allows a single P4ConnectionManager to be used for one off calls
-                in the main thread, without the need to init a new P4ConnectionManager
-                for each call.
-            2. Reduces the boilerplate required to expose the calls of the single
-                P4ConnectionManager, whilst still making the functionality
-                accessible at the module level.
-
-        Args:
-            attribute_name (str): The name of the module level attribute to access.
-
-        Returns:
-            Any: The accessed attribute.
-    """
-
     connection_manager = _get_connection_manager()
     if hasattr(connection_manager, attribute_name):
         return getattr(connection_manager, attribute_name)
 
-    _globals = globals()
-    if attribute_name in _globals:
-        return getattr(_globals, attribute_name)
+    module_globals = globals()
+    if attribute_name in module_globals:
+        return getattr(module_globals, attribute_name)
 
-    raise AttributeError(f"{__name__} has no attribute: {attribute_name}!")
+    msg = f"{__name__} has no attribute: {attribute_name}!"
+    raise AttributeError(msg)
 
 
-def __dir__():
+def __dir__() -> tuple[str, ...]:
     return __all__
 
 

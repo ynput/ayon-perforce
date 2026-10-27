@@ -26,7 +26,7 @@ class CollectPerforceProfileModel(BaseSettingsModel):
         title="Task names",
     )
     add_perforce_control: bool = Field(
-        True,
+        default=True,
         title="Commit representations to Perforce",
     )
     template_name: str = Field(

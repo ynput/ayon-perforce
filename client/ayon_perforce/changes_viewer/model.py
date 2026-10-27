@@ -27,7 +27,12 @@ class ChangesModel(QtGui.QStandardItemModel):
     ]
     _changes_by_item_id: dict
 
-    def __init__(self, controller: ChangesViewerController, *args, **kwargs):
+    def __init__(
+        self,
+        controller: ChangesViewerController,
+        *args: Any,  # noqa: ANN401 - passed through to Qt model
+        **kwargs: Any,  # noqa: ANN401 - passed through to Qt model
+    ):
         """Initialize the model."""
         super().__init__(*args, **kwargs)
         self._changes_by_item_id = {}

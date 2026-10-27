@@ -1,9 +1,7 @@
-from .window import (
-    show,
-    ChangesWindows
-)
+"""Perforce changes viewer tool."""
+from .window import ChangesWindows, show
 
 __all__ = (
-    "show",
-    "ChangesWindows"
+    "ChangesWindows",
+    "show"
 )

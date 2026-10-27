@@ -1,25 +1,42 @@
-import shutil
-from copy import deepcopy
-from pathlib import Path
+"""Pre-launch hook resetting Perforce workspace on farm render jobs."""
+from __future__ import annotations
+
 import subprocess
-from typing import List
+from copy import deepcopy
+from typing import ClassVar, List, Optional, Tuple, Union
 
 from ayon_applications import (
-    PreLaunchHook,
     LaunchTypes,
+    PreLaunchHook,
 )
-
 from ayon_core.lib import StringTemplate
 from ayon_core.lib.ayon_info import get_workstation_info
 from ayon_core.pipeline.template_data import get_template_data
-
-from ayon_perforce.backend.rest_stub import PerforceRestStub
 from ayon_perforce.backend.communication_server import WebServer
 
 
 def call_command(
-    command: List[str], from_stdin=None, start_new_session=False, as_raw=False
-):
+    command: List[str],
+    from_stdin: Optional[str] = None,
+    *,
+    start_new_session: bool = False,
+    as_raw: bool = False,
+) -> Union[List[str], subprocess.CompletedProcess, None]:
+    """Run a command and return its output.
+
+    Args:
+        command (List[str]): Command and its arguments.
+        from_stdin (Optional[str]): Text passed to the command's stdin.
+        start_new_session (bool): Start the process in a new session.
+        as_raw (bool): Return the ``CompletedProcess`` instead of the
+            output lines.
+
+    Returns:
+        Union[List[str], subprocess.CompletedProcess, None]: Lines of
+            stdout followed by stderr, the completed process if ``as_raw``
+            is set, or None if the command failed.
+
+    """
     try:
         if from_stdin:
             result = subprocess.run(
@@ -42,14 +59,26 @@ def call_command(
             stdout = result.stdout.splitlines() or []
             stderr = result.stderr.splitlines() or []
             result = stdout + stderr
-
-        return result
     except subprocess.CalledProcessError as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}")  # noqa: T201 - no logger in module function
         return None
+    else:
+        return result
 
 
-def get_from_workspaceinfo(ws_info: List[str]):
+def get_from_workspaceinfo(
+    ws_info: List[str],
+) -> Tuple[Optional[str], Optional[str]]:
+    """Get workspace and stream name from ``p4 info`` output.
+
+    Args:
+        ws_info (List[str]): Output lines of ``p4 info``.
+
+    Returns:
+        Tuple[Optional[str], Optional[str]]: Workspace (client) name and
+            stream name, None for those not found.
+
+    """
     ws = None
     stream = None
     for line in ws_info:
@@ -63,21 +92,28 @@ def get_from_workspaceinfo(ws_info: List[str]):
 class PerforcePreLaunchFarmHook(PreLaunchHook):
     """Handle workspace reset to commit on remote render jobs."""
 
-    hosts = {"unreal"}
-    launch_types = {LaunchTypes.farm_publish}
+    hosts: ClassVar[set[str]] = {"unreal"}
+    launch_types: ClassVar[set[str]] = {LaunchTypes.farm_publish}
 
-    def execute(self):
+    def execute(self) -> None:  # noqa: C901 - existing hook logic
+        """Switch to the render node workspace and sync to the changelist.
+
+        Raises:
+            ValueError: If Perforce data are missing in the environment,
+                the workspace template can't be solved or the stream
+                differs.
+            RuntimeError: If the workspace could not be set.
+
+        """
         env = deepcopy(self.data["env"])
-        if publish_job := env.get("AYON_PUBLISH_JOB"):
-            if int(publish_job) > 0:
-                return
+        publish_job = env.get("AYON_PUBLISH_JOB")
+        if publish_job and int(publish_job) > 0:
+            return
 
         if not env.get("PERFORCE_WEBSERVER_URL"):
             p4_webserver = WebServer()
             p4_webserver.start()
 
-        anatomy = self.data["anatomy"]
-        ue_tmpl = anatomy.get_template_item("work", "unreal")
         template_data = get_template_data(
             self.data["project_entity"],
             folder_entity=self.data["folder_entity"],
@@ -87,11 +123,10 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
         )
         template_data["ext"] = "uproject"
         template_data["workstation_info"] = get_workstation_info()
-        uproject_name = Path(ue_tmpl.format(template_data)["file"]).stem
-        print(f"{template_data = }")
+        self.log.info("template_data = %r", template_data)
 
         p4_data = {}
-        for key in env.keys():
+        for key in env:
             if key == "AYON_P4_WORKSPACE":
                 p4_data["workspace_name"] = env[key]
             if key == "AYON_P4_STREAM":
@@ -100,8 +135,9 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
                 p4_data["changelist"] = env[key]
 
         if not p4_data:
-            raise ValueError("No Perforce data found in environment")
-        print(f"{p4_data = }")
+            msg = "No Perforce data found in environment"
+            raise ValueError(msg)
+        self.log.info("p4_data = %s", p4_data)
 
         # find render node's workspace
         p4_settings = self.data["project_settings"]["perforce"]
@@ -109,30 +145,35 @@ class PerforcePreLaunchFarmHook(PreLaunchHook):
         ws_template = StringTemplate(ws_settings["template"])
         ws_name = ws_template.format(template_data)
         if not ws_name.solved:
-            raise ValueError("Workspace template could not be solved")
+            msg = "Workspace template could not be solved"
+            raise ValueError(msg)
 
         # get current workspace? -> nah just checkout the correct one already
         try:
-            call_command(["p4", "set", f"P4CLIENT={ws_name}"])  #! can fail -> wrap try/catch
-        except Exception:
-            raise Exception("Failed to set workspace")
+            # ! can fail -> wrap try/catch
+            call_command(["p4", "set", f"P4CLIENT={ws_name}"])
+        except Exception as err:
+            msg = "Failed to set workspace"
+            raise RuntimeError(msg) from err
 
         # get current clientinfo for newly checked out workspace
         curr_ws_info = call_command(["p4", "info"])
-        print(f"{curr_ws_info = }")
+        self.log.info("curr_ws_info = %r", curr_ws_info)
         curr_ws, curr_stream = get_from_workspaceinfo(curr_ws_info)
-        print(f"{curr_ws = }")
-        print(f"{curr_stream = }")
+        self.log.info("curr_ws = %r", curr_ws)
+        self.log.info("curr_stream = %r", curr_stream)
 
         # check if we're on the correct stream
-        if not curr_stream == p4_data["stream"]:
-            # assumes workspaces are checked out to the correct stream per default
-            raise ValueError("Switching stream is not yet supported")
+        if curr_stream != p4_data["stream"]:
+            # assumes workspaces are checked out to the correct stream
+            # per default
+            msg = "Switching stream is not yet supported"
+            raise ValueError(msg)
 
         # revert any changes
         revert_result = call_command(["p4", "revert", "//..."])
-        print(f"{revert_result = }")
+        self.log.info("revert_result = %r", revert_result)
 
         # sync to changelist
         sync_result = call_command(["p4", "sync", f"@{p4_data['changelist']}"])
-        print(f"{sync_result = }")
+        self.log.info("sync_result = %r", sync_result)

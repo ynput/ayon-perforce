@@ -11,10 +11,9 @@ from ayon_core.lib import StringTemplate, ayon_info
 from ayon_core.pipeline.template_data import get_template_data_with_names
 from ayon_core.settings import get_project_settings
 
-from .version import __version__
 from .lib import get_local_login
 from .tray.login import PerforceLoginTray
-
+from .version import __version__
 
 PERFORCE_ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -54,8 +53,8 @@ class PerforceAddon(AYONAddon, ITrayService, IPluginPaths):
         self.enabled: bool = self.settings and self.settings["enabled"]
         self.set_service_running_icon() if self.enabled else self.set_service_failed_icon()  # noqa: E501
 
+    @staticmethod
     def get_connection_info(
-        self,
         project_name: str,
         folder_entity: dict,
         task_entity: dict,

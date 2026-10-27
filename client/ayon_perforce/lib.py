@@ -1,16 +1,20 @@
+"""Perforce command line helpers and local login storage."""
 from __future__ import annotations
 
-from os import environ
-from dataclasses import dataclass
-from pathlib import Path
-
 import subprocess
-from typing import TYPE_CHECKING, Optional
+from dataclasses import dataclass
+from os import environ
+from typing import TYPE_CHECKING, Any, Optional
 
-from ayon_core.lib import Logger, AYONSecureRegistry
+from ayon_core.lib import AYONSecureRegistry, Logger
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
 log = Logger.get_logger(__name__)
+
+# minimal number of space separated columns in p4 list output lines
+_MIN_COLUMNS = 2
 
 
 def call_command(
@@ -21,10 +25,15 @@ def call_command(
 
     Args:
         command (list[str]): The command to run as a list of strings.
-        from_stdin (Optional[str], optional): Input to be passed to the command. Defaults to None.
+        from_stdin (Optional[str], optional): Input to be passed to the
+            command. Defaults to None.
 
     Returns:
         list[str]: The output of the command as a list of strings.
+
+    Raises:
+        RuntimeError: If the command fails and writes to stderr.
+
     """
     try:
         result = subprocess.run(
@@ -72,7 +81,7 @@ class P4:
             if not line or line.startswith("#"):
                 continue
             splits = line.split(" ")
-            if len(splits) < 2:
+            if len(splits) < _MIN_COLUMNS:
                 continue
             result.append(splits[1])
         return result
@@ -90,14 +99,17 @@ class P4:
             if not line or line.startswith("#"):
                 continue
             splits = line.split(" ")
-            if len(splits) < 2:
+            if len(splits) < _MIN_COLUMNS:
                 continue
             result.append(splits[1])
         return result
 
     @staticmethod
-    def available_streams(depot: str = None) -> list[str]:
+    def available_streams(depot: Optional[str] = None) -> list[str]:
         """Get all available streams for the current user.
+
+        Args:
+            depot (Optional[str]): Limit the streams to this depot.
 
         Returns:
             list[str]: A list of stream names.
@@ -114,7 +126,7 @@ class P4:
             if not line or line.startswith("#"):
                 continue
             splits = line.split(" ")
-            if len(splits) < 2:
+            if len(splits) < _MIN_COLUMNS:
                 continue
             result.append(splits[1])
         return result
@@ -144,24 +156,39 @@ class P4Workspace:
 
         # TODO:
             - implement long running task spinner for p4 sync
-
-        Raises:
-            RuntimeError: If the depot or stream are not present.
         """
         if self.stream and not self.stream.startswith("//"):
             self.stream = f"//{self.depot}/{self.stream}"
 
-    def switch(self, force: bool=False) -> None:
-        """Update the workspace from generated spec and activates it."""
+    def switch(self, *, force: bool = False) -> None:
+        """Update the workspace from generated spec and activates it.
+
+        Args:
+            force (bool): Revert opened files and force the switch and sync.
+
+        Raises:
+            RuntimeError: If the stream or depot does not exist on the server
+                or the workspace has opened files and can't be switched.
+
+        """
         # check if workspace name is already on the server
         if self.name not in P4.available_workspaces():
-            msg = f"Workspace `{self.name}` does not exist on the Perforce server. Creating one."
+            msg = (
+                f"Workspace `{self.name}` does not exist on the Perforce "
+                "server. Creating one."
+            )
             log.debug(msg)
 
         # check if the stream is available
         if self.stream not in P4.available_streams(depot=self.depot):
-            msg = f"Stream `{self.stream}` does not exist on the Perforce server."
-            log.debug(f"{P4.available_streams(depot=self.depot) = }")
+            msg = (
+                f"Stream `{self.stream}` does not exist on the Perforce "
+                "server."
+            )
+            log.debug(
+                "P4.available_streams(depot=self.depot) = %r",
+                P4.available_streams(depot=self.depot),
+            )
             raise RuntimeError(msg)
 
         # check if the depot is available
@@ -170,10 +197,11 @@ class P4Workspace:
             msg = (
                 f"Depot `{self.depot}` does not exist on the Perforce server."
             )
-            log.debug(f"{P4.available_depots() = }")
+            log.debug("P4.available_depots() = %r", P4.available_depots())
             raise RuntimeError(msg)
 
-        # check if workspace has opened files and can be switched to a different stream
+        # check if workspace has opened files and can be switched to
+        # a different stream
         if force:
             try:
                 call_command(["p4", "revert", "//..."])
@@ -181,11 +209,10 @@ class P4Workspace:
                 log.warning("Failed to revert files. Ignoring.")
         else:
             curr_ws = P4Workspace.current()
-            log.debug(f"{curr_ws = }")
+            log.debug("curr_ws = %r", curr_ws)
             if P4Workspace.opened_files() and curr_ws.stream != self.stream:
-                raise RuntimeError(
-                    "Workspace has opened files. Can't switch streams."
-                )
+                msg = "Workspace has opened files. Can't switch streams."
+                raise RuntimeError(msg)
 
         # generate a new p4 spec and set it as current workspace
         spec = self.generate_spec()
@@ -198,15 +225,15 @@ class P4Workspace:
         # set instance variables based on created spec
         cmd_out: list = call_command(["p4", "client", "-o", self.name])
         spec_setts = self.parse_cli_spec(cmd_out)
-        log.debug(f"{cmd_out = }")
-        log.debug(f"cli spec: {spec_setts = }")
+        log.debug("cmd_out = %r", cmd_out)
+        log.debug("cli spec: spec_setts = %r", spec_setts)
         for sett_key, sett_val in spec_setts.items():
             setattr(self, sett_key, sett_val)
 
         # get latest files for workspace stream
         self.get_latest(force=force)
 
-    def get_latest(self, force: bool = False) -> None:
+    def get_latest(self, *, force: bool = False) -> None:
         """Get the latest changes for this workspace.
 
         # TODO:
@@ -214,14 +241,15 @@ class P4Workspace:
             - change stash:bool to mode:enum
 
         Args:
-            stash (bool, optional): If True, stashes the changes before syncing. Defaults to False
+            force (bool, optional): If True, force the sync and list files
+                to clean in the workspace. Defaults to False.
 
         Raises:
             RuntimeError: If the sync command fails.
         """
         sync_dry_run = call_command(["p4", "sync", "-n"])
         total_sync_changes: int = len(sync_dry_run)
-        log.debug(f"total changes to sync: {total_sync_changes}")
+        log.debug("total changes to sync: %s", total_sync_changes)
         if total_sync_changes == 0:
             log.info("Nothing to sync, workspace already up-to-date.")
             return
@@ -243,7 +271,7 @@ class P4Workspace:
             proc.stdout.close()
             retcode = proc.wait()
             if retcode:
-                errmsg = f"p4 sync failed: {proc.stderr.strip}"
+                errmsg = f"p4 sync failed: {proc.stderr.read().strip()}"
                 raise RuntimeError(errmsg)
 
             if force:
@@ -261,14 +289,26 @@ class P4Workspace:
                 proc.stdout.close()
                 retcode = proc.wait()
                 if retcode:
-                    errmsg = f"p4 clean failed: {proc.stderr.strip()}"
+                    errmsg = (
+                        f"p4 clean failed: {proc.stderr.read().strip()}"
+                    )
                     raise RuntimeError(errmsg)
                 log.info("p4 clean finished successfully.")
 
         except subprocess.CalledProcessError as e:
             raise RuntimeError from e
 
-    def generate_spec(self, stream: Optional[str] = None) -> dict:
+    def generate_spec(self, stream: Optional[str] = None) -> str:
+        """Generate Perforce client spec for this workspace.
+
+        Args:
+            stream (Optional[str]): Stream to use instead of the workspace
+                stream.
+
+        Returns:
+            str: Client spec to be passed to ``p4 client -i``.
+
+        """
         options_str = " ".join(self.options or [])
         spec_lines = [
             f"Client: {self.name}",
@@ -281,7 +321,7 @@ class P4Workspace:
             "",  # newline required by spec
         ]
         spec = "\n".join(spec_lines)
-        log.debug(f"generated spec: {spec}")
+        log.debug("generated spec: %s", spec)
         return spec
 
     @classmethod
@@ -298,14 +338,15 @@ class P4Workspace:
         return cls(**spec)
 
     @staticmethod
-    def parse_cli_spec(spec: list[str]) -> dict[str, any]:
+    def parse_cli_spec(spec: list[str]) -> dict[str, Any]:
         """Parse Perforce spec output into a dictionary.
 
         Args:
             spec (list[str]): The output of the `p4 client -o` command.
 
         Returns:
-            dict[str, str]: A dictionary containing the parsed spec information.
+            dict[str, Any]: A dictionary containing the parsed spec
+                information.
         """
         spec_dict = {}
         for line in spec:
@@ -334,12 +375,18 @@ class P4Workspace:
             list[str]: A list of opened files.
         """
         cmd_out: list = call_command(["p4", "opened"])
-        log.debug(f"opened files: {cmd_out}")
+        log.debug("opened files: %s", cmd_out)
         return cmd_out
 
 
-def get_local_login() -> None:
-    """Get the Perforce Login entry from the local registry."""
+def get_local_login() -> tuple[Optional[str], Optional[str]]:
+    """Get the Perforce Login entry from the local registry.
+
+    Returns:
+        tuple[Optional[str], Optional[str]]: Username and password, or
+            ``(None, None)`` if they are not stored.
+
+    """
     try:
         reg = AYONSecureRegistry("perforce/username")
         username = reg.get_item("value")

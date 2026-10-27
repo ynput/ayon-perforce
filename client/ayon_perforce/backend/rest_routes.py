@@ -222,11 +222,18 @@ class GetChanges(PerforceRestApiEndpoint):
             content_type="application/json"
         )
 
+
 class GetUncommittedChanges(PerforceRestApiEndpoint):
     """Returns list of uncomitted changes."""
-    async def post(self, request) -> Response:
+    async def post(self, request: Request) -> Response:
+        """Get list of uncommitted changes.
+
+        Returns:
+            Response: Response object
+
+        """
         log.debug("GetUncommittedChanges called")
-        content = await request.json()
+        _ = await request.json()
 
         result = PerforceBackend.get_uncommitted_changes()
         return Response(
@@ -277,8 +284,14 @@ class SubmitChangelist(PerforceRestApiEndpoint):
 
 
 class SubmitDefaultChangelist(PerforceRestApiEndpoint):
-    """Returns list of dict with project info (id, name)."""
-    async def post(self, request) -> Response:
+    """Submit the default changelist."""
+    async def post(self, request: Request) -> Response:
+        """Submit the default changelist with a comment.
+
+        Returns:
+            Response: Response object
+
+        """
         log.debug("SubmitChangelist called")
         content = await request.json()
 
@@ -291,7 +304,14 @@ class SubmitDefaultChangelist(PerforceRestApiEndpoint):
 
 
 class Revert(PerforceRestApiEndpoint):
-    async def post(self, request) -> Response:
+    """Revert file on 'path'."""
+    async def post(self, request: Request) -> Response:
+        """Revert file.
+
+        Returns:
+            Response: Response object
+
+        """
         log.debug("Revert called")
         content = await request.json()
 
@@ -301,6 +321,7 @@ class Revert(PerforceRestApiEndpoint):
             body=self.encode(result),
             content_type="application/json"
         )
+
 
 class ExistsOnServer(PerforceRestApiEndpoint):
     """Returns information about file on 'path'."""

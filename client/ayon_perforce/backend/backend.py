@@ -183,7 +183,7 @@ class PerforceBackend:  # noqa: PLR0904
         return api.move(path, new_path, change_description=change_description)
 
     @staticmethod
-    def get_changes(stream: str = None) -> Optional[list[dict]]:
+    def get_changes(stream: Optional[str] = None) -> Optional[list[dict]]:
         """Get the list of changes.
 
         Parameters:
@@ -276,7 +276,7 @@ class PerforceBackend:  # noqa: PLR0904
         return api.submit_change_list(comment)
 
     @staticmethod
-    def submit_default_changelist(comment) -> Optional[int]:
+    def submit_default_changelist(comment: str) -> Optional[int]:
         """Submit the default change list with a comment.
 
         Args:

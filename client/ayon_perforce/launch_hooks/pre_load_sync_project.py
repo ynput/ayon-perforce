@@ -94,7 +94,7 @@ class SyncUnrealProject(PreLaunchHook):
 
         if not conn_info or not conn_info.workspace_name:
             msg = "Cannot find workspace for this context."
-            # TODO: check with p4 whether ws exists or not
+            # TODO(Tony Dorfmeister): check with p4 whether ws exists or not
             #       - just the ws_name isn't enough
             raise RuntimeError(msg)
 

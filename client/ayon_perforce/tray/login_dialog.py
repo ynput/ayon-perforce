@@ -1,10 +1,8 @@
-from qtpy import QtCore, QtWidgets, QtGui
-
-from ayon_core import style
-from ayon_core import resources
+"""Perforce login dialog for the AYON tray."""
+from ayon_core import resources, style
 from ayon_core.addon import AYONAddon
-
 from ayon_perforce import lib as p4lib
+from qtpy import QtCore, QtGui, QtWidgets
 
 
 class PerforceLoginDialog(QtWidgets.QDialog):
@@ -38,7 +36,7 @@ class PerforceLoginDialog(QtWidgets.QDialog):
 
         self.setup_ui()
 
-    def closeEvent(self, event: QtCore.QEvent) -> None:
+    def closeEvent(self, event: QtCore.QEvent) -> None:  # noqa: N802 - Qt override
         """Clear any message when closing the dialog."""
         self.connection_message.setText("")
         self.dialog_closed.emit()
