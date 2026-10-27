@@ -142,20 +142,56 @@ class ValidateWorkspace(pyblish.api.ContextPlugin):
 
 class ChangesSelectionListModel(QtCore.QAbstractListModel):
     """A list model for displaying uncommitted changes in a QListView."""
-    def __init__(self, data, parent=None):
+    def __init__(
+        self,
+        data: list[UncommittedChange],
+        parent: QtCore.QObject | None = None,
+    ) -> None:
+        """Initialize the model.
+
+        Args:
+            data (list[UncommittedChange]): Changes to display.
+            parent (QtCore.QObject | None): Parent object.
+
+        """
         super().__init__(parent)
         self._data = data
 
-    def rowCount(self, parent=QtCore.QModelIndex()) -> int:
+    def rowCount(  # ruff: ignore[invalid-function-name]
+        self, parent: QtCore.QModelIndex | None = None,
+    ) -> int:
+        """Return the number of changes."""
         return len(self._data)
 
-    def get_index(self, value):
+    def get_index(self, value: UncommittedChange) -> int | None:
+        """Return the row of the given change.
+
+        Args:
+            value (UncommittedChange): Change to look up.
+
+        Returns:
+            int | None: Row of the change, None if it is not in the model.
+
+        """
         for idx, val in enumerate(self._data):
             if val == value:
                 return idx
         return None
 
-    def data(self, index, role) -> Any:
+    def data(
+        self, index: QtCore.QModelIndex | int, role: int,
+    ) -> Any:  # ruff: ignore[any-type]
+        """Return the change or its text for the given role.
+
+        Args:
+            index (QtCore.QModelIndex | int): Index or row of the change.
+            role (int): Qt item data role.
+
+        Returns:
+            Any: Change text for the display role, the change for the user
+                role, None otherwise.
+
+        """
         if isinstance(index, QtCore.QModelIndex):
             index = index.row()
         if role == QtCore.Qt.DisplayRole:
@@ -164,7 +200,25 @@ class ChangesSelectionListModel(QtCore.QAbstractListModel):
             return self._data[index]
         return None
 
-    def removeRows(self, row, count, parent=QtCore.QModelIndex()):
+    def removeRows(  # ruff: ignore[invalid-function-name]
+        self,
+        row: int,
+        count: int,
+        parent: QtCore.QModelIndex | None = None,
+    ) -> bool:
+        """Remove changes from the model.
+
+        Args:
+            row (int): First row to remove.
+            count (int): Number of rows to remove.
+            parent (QtCore.QModelIndex | None): Parent index.
+
+        Returns:
+            bool: Always True.
+
+        """
+        if parent is None:
+            parent = QtCore.QModelIndex()
         self.beginRemoveRows(parent, row, row + count - 1)
         del self._data[row:row + count]
         self.endRemoveRows()
@@ -172,6 +226,8 @@ class ChangesSelectionListModel(QtCore.QAbstractListModel):
 
 
 class UncommittedChangesRepairer(ErrorMessageBox):
+    """Dialog listing uncommitted changes, so they can be reverted."""
+
     mb_submit_message: QtWidgets.QMessageBox = None
     lv_uncommitted_changes: QtWidgets.QListView = None
 
@@ -181,6 +237,16 @@ class UncommittedChangesRepairer(ErrorMessageBox):
             workspace_dir: str,
             workspace_name: str,
             parent: QtWidgets.QWidget | None = None):
+        """Initialize the dialog.
+
+        Args:
+            uncommitted_changes (list[UncommittedChange]): Changes to list.
+            workspace_dir (str): Workspace root directory.
+            workspace_name (str): Workspace name.
+            parent (QtWidgets.QWidget | None): Parent widget, the active
+                window if not set.
+
+        """
         # Set before super().__init__() because base __init__ calls
         # _create_content() which needs them.
         self.uncommitted_changes = uncommitted_changes
@@ -191,7 +257,7 @@ class UncommittedChangesRepairer(ErrorMessageBox):
         super().__init__("Pending Files in Changelist", parent)
         self.resize(800, 600)
 
-    def _create_content(self, content_layout) -> None:
+    def _create_content(self, content_layout: QtWidgets.QLayout) -> None:
         label = QtWidgets.QLabel(
             "You have pending files in your changelist.\n"
             "Please revert, shelve or submit them before"

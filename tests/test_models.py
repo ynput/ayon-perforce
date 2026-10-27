@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import datetime  # ruff: ignore[unconventional-import-alias]
+import datetime as dt
 import pathlib
 
 import p4_records as rec
@@ -32,7 +32,7 @@ from ayon_perforce.api.models import (
     perforce_timestamp_to_datetime,
 )
 
-UTC = datetime.UTC
+UTC = dt.UTC
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ UTC = datetime.UTC
 def test_perforce_date_round_trip() -> None:
     """P4 date string converts to UTC datetime and back."""
     date = perforce_date_to_datetime("2026/10/20 08:35:33")
-    assert date == datetime.datetime(2026, 10, 20, 8, 35, 33, tzinfo=UTC)
+    assert date == dt.datetime(2026, 10, 20, 8, 35, 33, tzinfo=UTC)
     assert datetime_to_perforce_date(date) == "2026/10/20 08:35:33"
 
 
@@ -104,7 +104,7 @@ def test_none_value_for_required_field_raises() -> None:
 def test_datetime_from_date_string() -> None:
     """Datetime fields accept p4 date strings."""
     user = User(**rec.CAPTURED_USER_SPEC)
-    assert user.update == datetime.datetime(
+    assert user.update == dt.datetime(
         2023, 2, 10, 16, 17, 48, tzinfo=UTC
     )
 
@@ -120,7 +120,7 @@ def test_optional_datetime_from_string() -> None:
     data = dict(rec.DOCUMENTED_CHANGE_SPEC_SHELVED)
     files = [data.pop("Files0"), data.pop("Files1")]
     change = Change(**data, files=files)
-    assert isinstance(change.shelve_access, datetime.datetime)
+    assert isinstance(change.shelve_access, dt.datetime)
 
 
 def test_nested_head_info_from_fstat_record() -> None:

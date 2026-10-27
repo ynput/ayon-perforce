@@ -378,27 +378,29 @@ class P4Workspace:
         if total_sync_changes == 0:
             log.info("Nothing to sync, workspace already up-to-date.")
             return
+        args = ["sync"]
+        if force:
+            args.append("-f")
+        args.append(f"{self.root}/...")
+        cleaned = None
         try:
-            args = ["sync"]
-            if force:
-                args.append("-f")
-            args.append(f"{self.root}/...")
-            result = P4Commands.run_p4(
-                *args)
-            for idx, item in enumerate(result):
-                log.debug("%s / %s - %s", idx + 1, total_sync_changes, item)
+            result = P4Commands.run_p4(*args)
             if force:
                 # preview files not matching the depot, takes some time
                 cleaned = P4Commands.run_p4(
                     "clean", "-n", f"{self.root}/...",
                     max_severity=MessageSeverity.WARNING,
                 )
-                for item in cleaned:
-                    log.debug("%s", item.get("data") or item)
-                log.info("p4 clean finished successfully.")
         except P4Error as err:
             msg = f"Failed to sync workspace `{self.name}`: {err}"
             raise RuntimeError(msg) from err
+
+        for idx, item in enumerate(result):
+            log.debug("%s / %s - %s", idx + 1, total_sync_changes, item)
+        if cleaned is not None:
+            for item in cleaned:
+                log.debug("%s", item.get("data") or item)
+            log.info("p4 clean finished successfully.")
 
     def generate_spec(
             self, stream: str | None = None) -> PerforceDict:

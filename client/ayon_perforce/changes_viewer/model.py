@@ -30,7 +30,12 @@ class ChangesModel(QtGui.QStandardItemModel):
     ]
     _changes_by_item_id: dict
 
-    def __init__(self, controller: ChangesViewerController, *args, **kwargs):
+    def __init__(
+        self,
+        controller: ChangesViewerController,
+        *args: Any,  # ruff: ignore[any-type]
+        **kwargs: Any,  # ruff: ignore[any-type]
+    ) -> None:
         """Initialize the model."""
         super().__init__(*args, **kwargs)
         self._changes_by_item_id = {}

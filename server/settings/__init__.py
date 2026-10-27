@@ -1,3 +1,4 @@
+"""Perforce addon settings."""
 from .conversions import convert_settings_overrides
 from .main import (
     DEFAULT_VALUES,
