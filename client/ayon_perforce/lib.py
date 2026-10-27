@@ -1,6 +1,7 @@
 """Library for Perforce client operations."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from os import environ
 from typing import TYPE_CHECKING, Any
@@ -136,13 +137,64 @@ class P4Workspace:
         if self.stream and not self.stream.startswith("//"):
             self.stream = f"//{self.depot}/{self.stream}"
 
-    def _use_existing_stream(self) -> None:
+    def _get_existing_spec(self) -> PerforceDict | None:
+        """Return spec of the workspace on the server, of any owner.
+
+        Returns:
+            Workspace spec, or ``None`` if the workspace doesn't exist.
+
+        """
+        # `client -o` of a missing workspace returns a template spec
+        # without `Update`, errors (e.g. failed login) are raised
+        spec = P4Commands.run_p4("client", "-o", str(self.name))[0]
+        return spec if "Update" in spec else None
+
+    def _check_existing(self, existing: PerforceDict) -> None:
+        """Check the existing workspace can be used by this workspace.
+
+        Owner and host must match, otherwise the workspace belongs to
+        someone else or can't be used on this machine. Root must match,
+        otherwise files would be synced where AYON doesn't expect them.
+
+        Raises:
+            RuntimeError: If owner, host or root differ.
+
+        """
+        owner = existing.get("Owner", "")
+        if owner.casefold() != self.owner.casefold():
+            msg = (
+                f"Workspace `{self.name}` belongs to `{owner}`, "
+                f"not `{self.owner}`. Change the workspace name template "
+                "or the owner of the workspace."
+            )
+            raise RuntimeError(msg)
+
+        host = existing.get("Host", "")
+        if host and self.host and host.casefold() != self.host.casefold():
+            msg = (
+                f"Workspace `{self.name}` is bound to host `{host}`, "
+                f"it can't be used on `{self.host}`."
+            )
+            raise RuntimeError(msg)
+
+        root = existing.get("Root", "")
+        if _normalize_path(root) != _normalize_path(self.root):
+            # changing the root keeps the have list, p4 would consider
+            # files at the new root as synced
+            msg = (
+                f"Workspace `{self.name}` has root `{root}`, but AYON "
+                f"expects `{self.root}`. Move the workspace to the "
+                "expected root or change the work template."
+            )
+            raise RuntimeError(msg)
+
+    def _use_existing_stream(self, existing: PerforceDict) -> None:
         """Use stream of the existing workspace with the same name.
 
         Keeps an existing stream workspace on its stream instead of
         converting it to a classic workspace.
         """
-        stream = P4Commands.get_stream(self.name)
+        stream = existing.get("Stream")
         if not stream:
             return
         self.stream = stream
@@ -192,19 +244,25 @@ class P4Workspace:
             )
             raise RuntimeError(msg)
 
-    def _check_opened_files(self) -> None:
-        """Check opened files of current workspace don't block stream switch.
+    def _check_opened_files(self, existing: PerforceDict) -> None:
+        """Check opened files of the workspace don't block stream switch.
 
         Raises:
             RuntimeError: If there are opened files and the stream differs.
 
         """
-        curr_ws = P4Workspace.current()
-        if not curr_ws.owner:
-            curr_ws.owner = self.owner
-        log.debug("Current workspace: %s", curr_ws)
-        if P4Workspace.opened_files() and curr_ws.stream != self.stream:
-            msg = "Workspace has opened files. Can't switch streams."
+        if existing.get("Stream") == self.stream:
+            return
+        # "file(s) not opened on this client." is a warning
+        records = P4Commands.run_p4(
+            "opened", "-C", str(self.name), "-m", "1",
+            max_severity=MessageSeverity.WARNING,
+        )
+        if any(record.get("code") != "error" for record in records):
+            msg = (
+                f"Workspace `{self.name}` has opened files. Can't switch "
+                f"stream `{existing.get('Stream')}` to `{self.stream}`."
+            )
             raise RuntimeError(msg)
 
     def switch(
@@ -226,21 +284,23 @@ class P4Workspace:
                 Otherwise it is used only by this process. Defaults
                 to True.
 
+        Existing workspace (of any owner) is updated, not replaced, only
+        its stream and options are changed.
+
         `RuntimeError` is raised if the depot or stream are not present,
+        if the existing workspace has a different owner, host or root,
         or if there are opened files and force is False.
 
         """
-        # check if workspace name is already on the server
-        workspace_exists = self.name in P4Commands.get_available_workspaces(
-            username=self.owner)
-        if not workspace_exists:
-            msg = (
-                f"Workspace `{self.name}` does not exist on "
-                "the Perforce server. Creating one."
-            )
-            log.debug(msg)
-        elif not self.stream:
-            self._use_existing_stream()
+        existing = self._get_existing_spec()
+        if existing is None:
+            log.debug(
+                "Workspace `%s` does not exist on the Perforce server. "
+                "Creating one.", self.name)
+        else:
+            self._check_existing(existing)
+            if not self.stream:
+                self._use_existing_stream(existing)
 
         self._validate_stream_and_depot()
 
@@ -251,13 +311,15 @@ class P4Workspace:
                 P4Commands.run_p4("revert", "//...")
             except P4Error:
                 log.warning("Failed to revert files. Ignoring.")
-        elif workspace_exists:
-            # new workspace has no opened files, `p4 opened` would fail
-            # with unknown client
-            self._check_opened_files()
+        elif existing is not None:
+            # new workspace has no opened files
+            self._check_opened_files(existing)
 
         # generate a new p4 spec and set it as current workspace
-        spec = self.generate_spec()
+        spec = (
+            self.generate_spec() if existing is None
+            else self._update_spec(existing)
+        )
         log.debug("Generated spec: %s", spec)
         switch_cmd = ["client", "-i"]
         if force:
@@ -370,6 +432,33 @@ class P4Workspace:
             spec["View0"] = f"//{self.depot}/... //{self.name}/..."
         return spec
 
+    def _update_spec(self, existing: PerforceDict) -> PerforceDict:
+        """Update spec of the existing workspace from this workspace.
+
+        Only stream and options are changed, the rest (description, view
+        of classic workspace, submit options...) is kept.
+
+        Args:
+            existing: Spec of the existing workspace.
+
+        Returns:
+            PerforceDict: spec structure ready to be marshalled.
+
+        """
+        spec = {
+            key: value for key, value in existing.items()
+            if key not in {"code", "Update", "Access"}
+        }
+        spec["Options"] = " ".join(self.options or [])
+        if self.stream:
+            spec["Stream"] = str(self.stream)
+            # view of stream workspace is generated from the stream
+            spec = {
+                key: value for key, value in spec.items()
+                if not key.startswith("View")
+            }
+        return spec
+
     @classmethod
     def current(cls) -> P4Workspace:
         """Get the currently active Perforce workspace.
@@ -397,6 +486,16 @@ class P4Workspace:
             return []
         log.debug("opened files: %s", cmd_out)
         return cmd_out
+
+
+def _normalize_path(path: str) -> str:
+    """Return path comparable regardless of separators and trailing slash.
+
+    Returns:
+        Normalized path, case-insensitive on Windows.
+
+    """
+    return os.path.normcase(os.path.normpath(path)) if path else ""
 
 
 def get_local_login() -> tuple[str | None, str | None]:

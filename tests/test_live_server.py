@@ -26,6 +26,7 @@ from ayon_perforce.api.models import (
     ChangeInfo,
     ChangeStatus,
     Client,
+    MessageSeverity,
     UncommittedChange,
     User,
 )
@@ -165,6 +166,26 @@ def test_live_opened(p4: P4Commands, client: Client) -> None:
     default = list(p4.opened())
     every = list(p4.opened(client=client.name, all_changelists=True))
     assert len(every) >= len(default)
+
+
+def test_live_opened_of_workspace(client: Client) -> None:
+    """Opened files check used by workspace switch doesn't fail.
+
+    Workspace without opened files returns a warning only.
+    """
+    records = P4Commands.run_p4(
+        "opened", "-C", client.name, "-m", "1",
+        max_severity=MessageSeverity.WARNING,
+    )
+    assert len(records) <= 1
+
+
+def test_live_existing_client_spec(client: Client) -> None:
+    """Existing workspace spec has `Update`, a missing one doesn't."""
+    existing = P4Commands.run_p4("client", "-o", client.name)[0]
+    assert "Update" in existing
+    missing = P4Commands.run_p4("client", "-o", "ayon_missing_ws_xyz")[0]
+    assert "Update" not in missing
 
 
 def test_live_uncommitted_changes(client: Client) -> None:

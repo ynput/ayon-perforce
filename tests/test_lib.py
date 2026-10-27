@@ -152,7 +152,7 @@ def test_switch_creates_new_workspace(
     """New workspace is created without checking its opened files."""
     from ayon_perforce.api.commands import P4Commands
 
-    fake_p4.respond()  # clients, workspace doesn't exist yet
+    fake_p4.respond(rec.DOCUMENTED_CLIENT_SPEC_NEW)
     fake_p4.respond(STREAM_DEPOT)
     fake_p4.respond(STREAM_RECORD)
     fake_p4.respond(CLIENT_SAVED)
@@ -162,13 +162,15 @@ def test_switch_creates_new_workspace(
     workspace.switch(sync=False, persist=False)
 
     assert fake_p4.args == [
-        ["clients", "-u", OWNER],
+        ["client", "-o", rec.WS],
         ["depots"],
         ["streams", "//stream_depot/..."],
         ["client", "-i"],
         ["client", "-o", rec.WS],
     ]
-    assert fake_p4.calls[3]["stdin"]["Options"] == "allwrite clobber rmdir"
+    spec = fake_p4.calls[3]["stdin"]
+    assert spec["Options"] == "allwrite clobber rmdir"
+    assert spec["Description"] == "Created by Ayon Launcher Hook"
     connection = P4Commands._connection  # ruff: ignore[private-member-access]
     assert connection is not None
     assert connection.client == rec.WS
@@ -178,7 +180,7 @@ def test_switch_persist_sets_p4_client(
     p4lib: types.ModuleType, fake_p4: FakeP4
 ) -> None:
     """With ``persist`` the workspace is stored by ``p4 set``."""
-    fake_p4.respond()
+    fake_p4.respond(rec.DOCUMENTED_CLIENT_SPEC_NEW)
     fake_p4.respond(STREAM_DEPOT)
     fake_p4.respond(STREAM_RECORD)
     fake_p4.respond(CLIENT_SAVED)
@@ -195,43 +197,145 @@ def test_switch_existing_with_opened_files_on_other_stream(
 ) -> None:
     """Opened files block switching an existing workspace to new stream."""
     other_stream = "//stream_depot/other"
-    fake_p4.respond({"code": "stat", "client": rec.WS})
+    fake_p4.respond(rec.CAPTURED_CLIENT_SPEC_STREAM)
     fake_p4.respond(STREAM_DEPOT)
     fake_p4.respond({**STREAM_RECORD, "Stream": other_stream})
-    fake_p4.respond(rec.CAPTURED_CLIENT_SPEC_STREAM)  # current client
     fake_p4.respond(rec.DOCUMENTED_OPENED_DEFAULT)
 
     workspace = make_workspace(p4lib, stream=other_stream)
     with pytest.raises(RuntimeError, match="opened files"):
         workspace.switch(sync=False, persist=False)
+    assert fake_p4.args[3] == ["opened", "-C", rec.WS, "-m", "1"]
     assert ["client", "-i"] not in fake_p4.args
+
+
+def test_switch_existing_to_other_stream_without_opened_files(
+    p4lib: types.ModuleType, fake_p4: FakeP4
+) -> None:
+    """Existing workspace without opened files is moved to new stream."""
+    other_stream = "//stream_depot/other"
+    fake_p4.respond(rec.CAPTURED_CLIENT_SPEC_STREAM)
+    fake_p4.respond(STREAM_DEPOT)
+    fake_p4.respond({**STREAM_RECORD, "Stream": other_stream})
+    fake_p4.respond(
+        {
+            "code": "error",
+            "data": "file(s) not opened on this client.\n",
+            "severity": 2,
+            "generic": 17,
+        },
+        returncode=1,
+    )
+    fake_p4.respond(CLIENT_SAVED)
+    fake_p4.respond(rec.CAPTURED_CLIENT_SPEC_STREAM)
+
+    make_workspace(p4lib, stream=other_stream).switch(
+        sync=False, persist=False)
+
+    spec = fake_p4.calls[4]["stdin"]
+    assert spec["Stream"] == other_stream
+    assert not any(key.startswith("View") for key in spec)
 
 
 def test_switch_existing_without_stream_keeps_its_stream(
     p4lib: types.ModuleType, fake_p4: FakeP4
 ) -> None:
     """Existing stream workspace isn't converted to classic workspace."""
-    fake_p4.respond({"code": "stat", "client": rec.WS})
-    fake_p4.respond(rec.CAPTURED_CLIENT_SPEC_STREAM)  # get_stream
+    fake_p4.respond(rec.CAPTURED_CLIENT_SPEC_STREAM)
     fake_p4.respond(STREAM_DEPOT)
     fake_p4.respond(STREAM_RECORD)
-    fake_p4.respond(rec.CAPTURED_CLIENT_SPEC_STREAM)  # current client
-    fake_p4.respond()  # no opened files
     fake_p4.respond(CLIENT_SAVED)
     fake_p4.respond(rec.CAPTURED_CLIENT_SPEC_STREAM)
 
     workspace = make_workspace(p4lib, stream=None, depot="other_depot")
     workspace.switch(sync=False, persist=False)
 
-    assert fake_p4.calls[6]["stdin"]["Stream"] == rec.STREAM
+    assert fake_p4.calls[3]["stdin"]["Stream"] == rec.STREAM
     assert workspace.depot == "stream_depot"
+
+
+def test_switch_existing_keeps_spec(
+    p4lib: types.ModuleType, fake_p4: FakeP4
+) -> None:
+    """Existing workspace keeps its spec, only options are changed."""
+    fake_p4.respond(rec.DOCUMENTED_CLIENT_SPEC_CLASSIC)
+    fake_p4.respond(LOCAL_DEPOT)
+    fake_p4.respond(CLIENT_SAVED)
+    fake_p4.respond(rec.DOCUMENTED_CLIENT_SPEC_CLASSIC)
+
+    make_workspace(p4lib, stream=None, depot="depot").switch(
+        sync=False, persist=False)
+
+    spec = fake_p4.calls[2]["stdin"]
+    expected = {
+        key: value for key, value in rec.DOCUMENTED_CLIENT_SPEC_CLASSIC.items()
+        if key not in {"code", "Update", "Access"}
+    }
+    expected["Options"] = "allwrite clobber rmdir"
+    assert spec == expected
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"Owner": "someone"}, "belongs to `someone`"),
+        ({"Host": "OTHER"}, "bound to host `OTHER`"),
+        ({"Root": "D:/elsewhere"}, "has root `D:/elsewhere`"),
+    ],
+)
+def test_switch_existing_mismatch_raises(
+    p4lib: types.ModuleType,
+    fake_p4: FakeP4,
+    override: dict[str, str],
+    message: str,
+) -> None:
+    """Workspace of other owner, host or root is not touched."""
+    fake_p4.respond({**rec.CAPTURED_CLIENT_SPEC_STREAM, **override})
+    with pytest.raises(RuntimeError, match=message):
+        make_workspace(p4lib).switch(force=True, sync=False, persist=False)
+    assert fake_p4.args == [["client", "-o", rec.WS]]
+
+
+def test_switch_existing_equivalent_values_accepted(
+    p4lib: types.ModuleType, fake_p4: FakeP4
+) -> None:
+    """Owner/host case and root separators don't make a mismatch."""
+    import os
+
+    existing = {
+        **rec.CAPTURED_CLIENT_SPEC_STREAM,
+        "Owner": OWNER.upper(),
+        "Host": "workstation",
+        "Root": os.path.normpath(rec.ROOT) + os.sep,
+    }
+    fake_p4.respond(existing)
+    fake_p4.respond(STREAM_DEPOT)
+    fake_p4.respond(STREAM_RECORD)
+    fake_p4.respond(CLIENT_SAVED)
+    fake_p4.respond(existing)
+
+    make_workspace(p4lib).switch(sync=False, persist=False)
+
+    assert fake_p4.args[3] == ["client", "-i"]
+
+
+def test_switch_propagates_p4_errors(
+    p4lib: types.ModuleType, fake_p4: FakeP4
+) -> None:
+    """Login failure is not mistaken for a missing workspace."""
+    from ayon_perforce.api.exceptions import CommandExecutionError
+
+    fake_p4.respond(returncode=1, stderr=b"Perforce password invalid")
+    with pytest.raises(CommandExecutionError, match="password"):
+        make_workspace(p4lib).switch(sync=False, persist=False)
+    assert len(fake_p4.args) == 1
 
 
 def test_switch_force_reverts_and_forces_spec(
     p4lib: types.ModuleType, fake_p4: FakeP4
 ) -> None:
     """Force reverts opened files instead of checking them."""
-    fake_p4.respond({"code": "stat", "client": rec.WS})
+    fake_p4.respond(rec.CAPTURED_CLIENT_SPEC_STREAM)
     fake_p4.respond(STREAM_DEPOT)
     fake_p4.respond(STREAM_RECORD)
     fake_p4.respond()  # revert

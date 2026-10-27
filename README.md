@@ -36,6 +36,8 @@ Perforce settings are defined in the server-side addon configuration and include
 
 The default workspace template is generated from AYON project context, and the addon resolves a locally logged-in Perforce user for the current workstation.
 
+An existing workspace with the resolved name is reused, only its stream and options are updated, other fields (description, view of a classic workspace, submit options) are kept. It must be owned by the logged-in user, bound to the current host (or to none) and have the root resolved from the Unreal work template, otherwise the launch fails instead of changing it.
+
 ## Prerequisites
 
 Before using the addon, make sure:
