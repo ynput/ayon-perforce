@@ -1,0 +1,6 @@
+INHERIT: .docs-setup/mkdocs/base.yml
+site_name: ayon-perforce
+repo_url: https://github.com/ynput/ayon-perforce
+nav:
+  - Home: index.md
+  - License: license.md
