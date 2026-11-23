@@ -196,19 +196,26 @@ html {
     display: flex;
     margin-left: 5px;
 }
+/* laid out like AYONpedia's (inline, 28px line, icon nudged by
+   vertical-align), so it lands on the same pixels at every display scale */
 .ynput-bar__icons a {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: block;
     width: 28px;
     height: 28px;
     margin: 2px;
     color: var(--ayon-on-surface);
+    font-size: 16px;
+    line-height: 28px;
+    text-align: center;
 }
 .ynput-bar__icons svg {
-    width: 16px;
-    height: 16px;
+    position: relative;
+    display: inline-flex;
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.125em;
     fill: currentColor;
+    overflow: visible;
 }
 /* eight links need ~1100px: keep the product links first, drop the rest */
 @media screen and (max-width: 1100px) {
@@ -235,10 +242,17 @@ html {
 }
 
 /* AYONpedia's navbar: full width, 60px, the logo on the left and the site name
-   as the active tab, attached to the page below it */
+   as the active tab, attached to the page below it. Like AYONpedia's, the 60px
+   include the bottom line: scaled (125%, 150% displays) the line stays a whole
+   screen pixel and the bar inside gets the rest, so its content lands on the
+   same screen pixels as on AYONpedia */
+.md-header {
+    box-sizing: border-box;
+    height: 60px;
+}
 .md-header__inner {
     max-width: none;
-    height: 59px; /* 60px with the border */
+    height: 100%;
     padding: 0 16px;
 }
 .md-header__source {
@@ -388,14 +402,18 @@ html {
     [data-md-toggle="search"]:not(:checked) ~ .md-header .md-search__inner {
         width: 200px;
     }
-    /* AYONpedia's navbar aligns its items to the bottom, so the search field
-       and the theme button sit a little below the middle */
+    /* AYONpedia's navbar places these from the bottom: the search field 4px
+       above it (Material's search box already leaves 4px under the field),
+       the theme button on it */
     [data-md-toggle="search"]:not(:checked) ~ .md-header .md-search {
-        position: relative;
-        top: 9.5px;
+        align-self: flex-end;
+        margin-bottom: 0;
     }
-    .ayon-theme__picker {
-        top: 13.5px;
+    [data-md-toggle="search"]:not(:checked) ~ .md-header .md-search__inner {
+        padding: 0;
+    }
+    .md-header .ayon-theme {
+        align-self: flex-end;
     }
     [data-md-toggle="search"]:not(:checked) ~ .md-header .md-search__form {
         height: 32px;
