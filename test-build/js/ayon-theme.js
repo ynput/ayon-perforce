@@ -8,17 +8,27 @@
      * Mermaid: Material draws each diagram in a closed shadow root, out of reach
      * of the page's CSS. Mermaid 11 puts arrow labels in a half-transparent box a
      * little wider than the label, which shows as thin lines on its sides;
-     * AYONpedia's Mermaid has no such box. Give every diagram root a sheet that
-     * clears it (adopted sheets survive Material writing the SVG into the root).
+     * AYONpedia's Mermaid has no such box. Nodes with the `main` class
+     * (classDef main) are the highlighted ones: as on AYONpedia, their colour
+     * follows the theme, the primary colour as the border and a tint of it as
+     * the fill. Give every diagram root a sheet with both rules (adopted sheets
+     * survive Material writing the SVG into the root; the page's custom
+     * properties reach into the root).
      */
     if ("adoptedStyleSheets" in Document.prototype) {
         const diagramSheet = new CSSStyleSheet();
-        diagramSheet.replaceSync(".labelBkg { background-color: transparent !important; }");
+        diagramSheet.replaceSync(`
+            .labelBkg { background-color: transparent !important; }
+            .node.main rect, .node.main polygon, .node.main circle, .node.main path {
+                stroke: var(--ayon-primary) !important;
+                fill: color-mix(in srgb, var(--ayon-primary) 15%, transparent) !important;
+            }
+        `);
         const attachShadow = Element.prototype.attachShadow;
         Element.prototype.attachShadow = function (init) {
             const root = attachShadow.call(this, init);
-            // only Material's diagrams use shadow roots here, and the rule only
-            // matches Mermaid's label box
+            // only Material's diagrams use shadow roots here, and the rules only
+            // match Mermaid's label box and `main` nodes
             root.adoptedStyleSheets = [...root.adoptedStyleSheets, diagramSheet];
             return root;
         };
