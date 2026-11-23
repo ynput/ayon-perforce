@@ -62,6 +62,8 @@
         keys.setAttribute("aria-hidden", "true");
         keys.innerHTML = `<kbd>${mac ? "⌘" : "ctrl"}</kbd><kbd>K</kbd>`;
         form.appendChild(keys);
+        // no "Please fill out this field" tooltip on the required empty field
+        query.title = "";
 
         document.addEventListener("keydown", (event) => {
             if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
