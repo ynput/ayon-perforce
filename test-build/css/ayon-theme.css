@@ -30,7 +30,6 @@
     --ayon-outline-variant: #41474d;
     --ayon-on-surface: #f4f5f5;
     --ayon-on-surface-variant: #c1c7ce;
-    --ayon-background: #252a31; /* the app header's colour */
     --ayon-surface-highest: #424a57;
     --ayon-surface-high-hover: hsl(217, 11%, 29%);
     --ayon-surface-high: #353b46;
@@ -60,7 +59,6 @@
     --ayon-outline-variant: #ccd3db;
     --ayon-on-surface: #1a1e23;
     --ayon-on-surface-variant: #47505a;
-    --ayon-background: #e9ecf0; /* the app header's colour */
     --ayon-surface-highest: #d8dde4;
     --ayon-surface-high-hover: #dae0e6;
     --ayon-surface-high: #e4e8ed;
@@ -103,10 +101,10 @@
     --md-default-fg-color--lighter: var(--ayon-outline);
     --md-default-fg-color--lightest: var(--ayon-outline-variant);
 
-    /* header: the app header's colour (lighter than the page in dark, darker in light) */
-    --md-primary-fg-color: var(--ayon-background);
-    --md-primary-fg-color--light: var(--ayon-background);
-    --md-primary-fg-color--dark: var(--ayon-background);
+    /* header: the page colour, as the AYON web app's top bar and page tabs */
+    --md-primary-fg-color: var(--ayon-surface-low);
+    --md-primary-fg-color--light: var(--ayon-surface-low);
+    --md-primary-fg-color--dark: var(--ayon-surface-low);
     --md-primary-bg-color: var(--ayon-on-surface);
     --md-primary-bg-color--light: var(--ayon-on-surface-variant);
 
@@ -163,7 +161,7 @@ html {
     align-items: flex-start;
     height: 48px;
     padding: 8px 16px 0;
-    background-color: var(--ayon-background);
+    background-color: var(--ayon-surface-low);
     border-bottom: 1px solid var(--ayon-outline-variant);
     font-size: 0.8rem;
 }
