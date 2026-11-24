@@ -710,6 +710,12 @@ html {
         font-size: 16px;
         line-height: 20px;
     }
+    /* Material pulls each nested list up by -0.4rem to undo a bottom padding
+       this theme doesn't have; with it, every open level lost 8px and the
+       last pages of deep sections were clipped */
+    .md-nav--primary .md-nav__item--nested > .md-nav {
+        margin-bottom: 0;
+    }
     .md-nav--primary .md-nav__item {
         padding: 0;
     }
